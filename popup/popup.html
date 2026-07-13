@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8" />
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <h1>Investiční klub</h1>
+    <p class="sub">Import portfolia od brokera</p>
+  </header>
+
+  <!-- State: unsupported page -->
+  <section id="view-home" hidden>
+    <p class="hint">Otevři stránku portfolia u svého brokera a pak klikni znovu na ikonu rozšíření.</p>
+    <div class="stack">
+      <button class="broker-link" data-url="https://www.etoro.com/portfolio">Otevřít eToro portfolio</button>
+      <button class="broker-link" data-url="https://www.interactivebrokers.ie/portal">Otevřít IBKR Client Portal</button>
+      <button class="broker-link" data-url="https://www.portu.cz/souhrn">Otevřít Portu</button>
+    </div>
+    <p class="hint small">Ve druhém tabu měj otevřený web klubu se svým portfoliem — tam se import zkontroluje a uloží.</p>
+  </section>
+
+  <!-- State: on a supported broker page -->
+  <section id="view-broker" hidden>
+    <div class="row">
+      <span class="badge" id="broker-name">…</span>
+      <span class="club-status" id="club-status"></span>
+    </div>
+    <p class="hint" id="broker-hint"></p>
+    <button id="btn-scrape" class="primary">Načíst portfolio</button>
+
+    <div id="result" hidden>
+      <div class="summary">
+        <div class="stat"><span id="res-count">0</span><label>pozic</label></div>
+        <div class="stat"><span id="res-total">—</span><label>hodnota</label></div>
+      </div>
+      <ul id="res-warnings" class="warnings"></ul>
+      <div class="target">
+        <label for="target-select">Importovat do portfolia</label>
+        <select id="target-select" disabled></select>
+        <p class="hint small" id="target-hint"></p>
+      </div>
+      <button id="btn-send" class="primary" disabled>Odeslat do webu klubu</button>
+      <p class="hint small">Web klubu se otevře na vybraném portfoliu s načtenými daty — zkontroluj a ulož.</p>
+    </div>
+
+    <p id="error" class="error" hidden></p>
+  </section>
+
+  <footer>
+    <a href="#" id="open-club">Otevřít web klubu</a>
+  </footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>

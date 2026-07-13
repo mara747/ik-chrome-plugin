@@ -1,0 +1,97 @@
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --fg: #16202a;
+  --muted: #6b7684;
+  --border: #e3e7ec;
+  --primary: #1d4ed8;
+  --primary-fg: #ffffff;
+  --warn: #b45309;
+  --error: #b91c1c;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121920;
+    --fg: #e8edf2;
+    --muted: #93a1b0;
+    --border: #2a3541;
+    --primary: #3b82f6;
+  }
+}
+
+* { box-sizing: border-box; margin: 0; }
+body {
+  width: 320px;
+  font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  padding: 14px;
+}
+
+header { margin-bottom: 12px; }
+h1 { font-size: 15px; }
+.sub { color: var(--muted); font-size: 12px; }
+
+.hint { color: var(--muted); margin: 8px 0; }
+.hint.small { font-size: 11px; }
+
+.stack { display: flex; flex-direction: column; gap: 6px; }
+
+button {
+  font: inherit;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  width: 100%;
+}
+button:hover { border-color: var(--primary); }
+button.primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-fg);
+  font-weight: 600;
+  margin-top: 10px;
+}
+button.primary:disabled { opacity: 0.6; cursor: default; }
+
+.row { display: flex; align-items: center; gap: 8px; }
+.badge {
+  background: var(--primary);
+  color: var(--primary-fg);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-weight: 600;
+  font-size: 12px;
+}
+.club-status { color: var(--muted); font-size: 11px; }
+
+.summary { display: flex; gap: 18px; margin: 12px 0 4px; }
+.stat span { font-size: 18px; font-weight: 700; display: block; }
+.stat label { color: var(--muted); font-size: 11px; }
+
+.warnings { margin: 6px 0 0 16px; padding: 0; color: var(--warn); font-size: 11px; }
+.warnings:empty { display: none; }
+
+.target { margin-top: 10px; }
+.target label { display: block; color: var(--muted); font-size: 11px; margin-bottom: 4px; }
+.target select {
+  font: inherit;
+  width: 100%;
+  padding: 7px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+}
+.target select:disabled { opacity: 0.6; }
+.target .hint { margin: 6px 0 0; }
+.target .hint:empty { display: none; }
+
+.error { color: var(--error); margin-top: 10px; }
+
+footer { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 8px; }
+footer a { color: var(--muted); font-size: 11px; text-decoration: none; }
+footer a:hover { color: var(--primary); }

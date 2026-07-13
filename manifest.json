@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "Investiční klub — import portfolia",
+  "version": "0.1.2",
+  "description": "Načte hodnotu a pozice z přihlášené stránky brokera (eToro, IBKR, Portu) a naimportuje je do otevřeného portfolia na webu Investičního klubu.",
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "Import portfolia do Investičního klubu"
+  },
+  "permissions": ["storage", "tabs"],
+  "content_scripts": [
+    {
+      "matches": ["https://www.etoro.com/*"],
+      "js": ["lib/normalize.js", "content/brokers/etoro.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://*.interactivebrokers.com/*",
+        "https://*.interactivebrokers.co.uk/*",
+        "https://*.interactivebrokers.ie/*"
+      ],
+      "js": ["lib/normalize.js", "content/brokers/ibkr.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://app.portu.cz/*", "https://www.portu.cz/*"],
+      "js": ["lib/normalize.js", "content/brokers/portu.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://investicni-klub.lovable.app/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*"
+      ],
+      "js": ["content/club.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
