@@ -223,7 +223,11 @@
     broker: "fio",
     brokerLabel: "Fio e-Broker",
     portfolioUrl: "https://ebroker.fio.cz/e-portfolio.cgi?menu=2",
-    isPortfolioPage: () => /^\/e-/.test(location.pathname),
+    // Login i odhlášení jedou na stejných /e-* cestách jako aplikace — cesta
+    // sama o sobě nestačí. Přihlášené stránky nesou v titulku e-mail účtu
+    // („Portfolio/Stav - jmeno@… - 11:38"), login/logout ne.
+    isPortfolioPage: () =>
+      /^\/e-/.test(location.pathname) && /@/.test(document.title),
 
     async scrape() {
       // Primárně Vývoj (?menu=2) — jediný pohled s nákupními cenami. Když je
