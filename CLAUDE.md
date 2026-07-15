@@ -90,15 +90,22 @@ tickers already normalized to Yahoo format (`IK.yahooSymbol`).
   eToro/LSE quote UK shares in pence, the club divides GBX by 100 → GBP).
   Calibrated against a correct manual portfolio (v0.1.1). A soft warning still
   lists the GBX rows in case a `.L` instrument quotes directly in GBP.
-  Fio e-Broker is DOM-calibrated live (2026-07): server-rendered CGI
-  (`e-portfolio.cgi`), `#portfolio_table` with `tr.col_row` headers mapped by
-  TEXT (column order differs between the Stav and Investice views — verified
-  on both), data rows until the `Součet (CZK)` sum row (= total). Cash rows
-  (`CZK(OU)`, `CZK(na cestě)`) fold into the total only. BCPP symbols
-  `BAA*` → strip + `.PR` (BAAKOMB → KOMB.PR, currency CZK); plain US tickers
-  pass through; other venues (SRN/PLN/RMS) uncalibrated → 1:1 + warning.
-  NO avg cost anywhere in the portfolio views (only current Kurz) →
-  `avgCost: null` + warning; Czech number locale → parseNumber "comma".
+  Fio e-Broker is DOM-calibrated live (2026-07): server-rendered CGI.
+  PRIMARY source is Portfolio/Vývoj (`e-portfolio.cgi?menu=2`,
+  `#portfolio_vyvoj_table`) — the only view with purchase data — fetched
+  same-origin+credentials from whatever e-Broker page the member is on
+  (the bare URL serves the LAST-VISITED sub-tab, so never rely on it).
+  Grouped headers repeat (Akcie/Kurz/Majetek twice): first occurrence =
+  period start, last = period end; shares/value = end state, closed
+  positions (end 0) skipped. avgCost = Nákup / Kusy ONLY when the period
+  covers the whole position (start 0, no sells, Kusy == end shares) AND the
+  row is CZK/BCPP (Nákup currency verified only there) — else null +
+  warning. Fallback: Portfolio/Stav `#portfolio_table` (no avg cost). Both:
+  header-TEXT-driven column maps, `Součet (CZK)` row = total, cash rows
+  (bare "CZK" on Vývoj, "CZK(OU)"/"CZK(na cestě)" on Stav) fold into the
+  total only. BCPP symbols `BAA*` → strip + `.PR` (BAAKOMB → KOMB.PR, CZK);
+  plain US tickers pass through; other venues (SRN/PLN/RMS) uncalibrated →
+  1:1 + warning. Czech number locale → parseNumber "comma".
   IBKR is API-ONLY (user's call: "scraping webu se rozbije spíš než API"):
   scrape() reads the same-origin authenticated Client Portal API
   (`/v1/api/portfolio/accounts` → `…/positions/{page}` → `…/summary`, plus
