@@ -15,8 +15,10 @@ pod přihlášeným účtem člena.
 2. Otevři `chrome://extensions` a zapni **Režim pro vývojáře** (vpravo nahoře).
 3. **Načíst rozbalené** → vyber složku repa.
 
-Členům se distribuuje zip ze stránky klubu (`/rozsireni`). Publikace do
-Chrome Web Store (jednorázový poplatek 5 USD + review) až se rozšíření osvědčí.
+Členům se distribuuje zip ze stránky klubu:
+**<https://investicni-klub.lovable.app/rozsireni>** (včetně návodu k instalaci).
+Publikace do Chrome Web Store (jednorázový poplatek 5 USD + review) až se
+rozšíření osvědčí.
 
 ## Použití
 
