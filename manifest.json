@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Investiční klub — import portfolia",
-  "version": "0.1.2",
-  "description": "Načte hodnotu a pozice z přihlášené stránky brokera (eToro, IBKR, Portu) a naimportuje je do otevřeného portfolia na webu Investičního klubu.",
+  "version": "0.1.3",
+  "description": "Načte hodnotu a pozice z přihlášené stránky brokera (eToro, IBKR, Portu, Fio) a naimportuje je do otevřeného portfolia na webu Investičního klubu.",
   "action": {
     "default_popup": "popup/popup.html",
     "default_title": "Import portfolia do Investičního klubu"
@@ -26,6 +26,11 @@
     {
       "matches": ["https://app.portu.cz/*", "https://www.portu.cz/*"],
       "js": ["lib/normalize.js", "content/brokers/portu.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://ebroker.fio.cz/*"],
+      "js": ["lib/normalize.js", "content/brokers/fio.js"],
       "run_at": "document_idle"
     },
     {
