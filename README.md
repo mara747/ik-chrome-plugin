@@ -44,6 +44,10 @@ Chrome Web Store (jednorázový poplatek 5 USD + review) až se rozšíření os
 popup/            UI: detekce brokera na aktivním tabu → scrape → odeslání
 lib/normalize.js  sdílené: parsování čísel/měn (en i cs formáty), yahooSymbol,
                   DOM helpery, registrace scraperu (IK_DETECT / IK_SCRAPE)
+lib/guides.js     texty nápovědy per broker (kam se prokliknout pro import)
+lib/banner.js     pruh Investičního klubu nahoře na stránkách brokera:
+                  kontextová nápověda podle isPortfolioPage() (zavíratelný,
+                  „už neukazovat" per broker)
 content/brokers/  jeden scraper na brokera; registruje se přes IK.registerScraper
 content/club.js   bridge na webu klubu: doručí payload stránce (postMessage
                   s retry, dokud stránka portfolia nepošle ACK)
@@ -61,8 +65,10 @@ klubu; `club.js` ho doručuje stránce, dokud portfolio stránka nepotvrdí ACK
    currency, note }` (ticker ve formátu Yahoo Finance) nebo `{ ok: false,
    error, needsCalibration }`.
 2. Do `manifest.json` přidej blok `content_scripts` s doménami brokera
-   (`lib/normalize.js` vždy jako první).
-3. Volitelně přidej zkratku do `popup/popup.html` (`.broker-link`).
+   (`lib/normalize.js`, `lib/guides.js`, `lib/banner.js`, pak scraper).
+3. Přidej texty nápovědy do `lib/guides.js` (klíč = `broker`) — bez nich se
+   pruh na stránkách brokera prostě neukáže.
+4. Volitelně přidej zkratku do `popup/popup.html` (`.broker-link`).
 
 Přijímací strana na webu je generická — novému brokerovi stačí přidat label do
 `BROKER_LABELS` v `_app.portfolio.$portfolioId.tsx` (jinak se zobrazí klíč).

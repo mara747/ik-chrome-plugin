@@ -23,6 +23,14 @@ same convention as the sibling projects.
 
 1. Broker scraper content script registers via `IK.registerScraper` in
    `lib/normalize.js`; popup drives it: `IK_DETECT` → `IK_SCRAPE`.
+   Registration also mounts the guidance banner (`lib/banner.js`, texts per
+   broker in `lib/guides.js`): a fixed top strip on broker pages that flips
+   between "navigate to X" and "import works from here" by polling the
+   scraper's isPortfolioPage() every 2 s (SPAs navigate without reloads).
+   Shadow DOM, overlay (never push content down). Dismissal: ✕ = session
+   (sessionStorage), "už neukazovat" = permanent per broker
+   (chrome.storage.local `ik_banner_hidden_<broker>`). Banner errors must
+   never break the scraper (attach is wrapped in try/catch).
 2. Popup asks the club tab for the member's portfolio list (IK_PING answered
    by the `_app.tsx` layout's ExtensionBridge with `{ portfolioId,
    portfolioName, portfolios }`), the member picks the TARGET portfolio, and
