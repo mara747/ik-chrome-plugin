@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Investiční klub — import portfolia",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Načte hodnotu a pozice z přihlášené stránky brokera (eToro, IBKR, Portu, Fio, Anycoin) a naimportuje je do otevřeného portfolia na webu Investičního klubu.",
   "action": {
     "default_popup": "popup/popup.html",

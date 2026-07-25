@@ -193,6 +193,21 @@
       }
       if (total.value == null) {
         warnings.push("Celkovou hodnotu portfolia jsem na stránce nenašel — pošlu jen pozice.");
+      } else {
+        // eToro "equity" zahrnuje i neinvestované volné prostředky, pozice ne.
+        // Spočti rozdíl proti součtu equity buněk a řekni to členovi — stejná
+        // konvence jako Portu/Fio/Anycoin (hotovost jen v celkové hodnotě).
+        const rowSum = IK.pickAll(document, [CELL("equity")])
+          .map((el) => IK.parseNumber(el.innerText, "dot"))
+          .filter((v) => v != null)
+          .reduce((s, v) => s + v, 0);
+        const cash = total.value - rowSum;
+        if (rowSum > 0 && cash > Math.max(1, total.value * 0.005)) {
+          warnings.push(
+            `Volné prostředky ≈ ${Math.round(cash).toLocaleString("cs-CZ")} ` +
+            `${total.currency || ""} jsou součástí celkové hodnoty, ale ne pozic.`,
+          );
+        }
       }
 
       const copied = (IK.pickText(document, COPIED_NAME_SELECTORS) || "").trim();
