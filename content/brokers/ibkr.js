@@ -292,9 +292,14 @@
         );
       }
 
-      // 4) Net Liquidation.
+      // 4) Net Liquidation + broker-reported cash. totalcashvalue sits next
+      // to netliquidation in the same /summary response and shares its base
+      // currency; it can be negative on margin — passed through as-is.
       const summary = await apiGet(`${apiBase}/portfolio/${account.id}/summary`);
       const nl = summary && summary.netliquidation;
+      const tc = summary && summary.totalcashvalue;
+      const cashValue = tc && Number.isFinite(Number(tc.amount))
+        ? Number(tc.amount) : null;
       let totalValue = nl && Number(nl.amount) > 0 ? Number(nl.amount) : null;
       let currency = (nl && nl.currency) || null;
       if (totalValue == null) {
@@ -316,6 +321,7 @@
           broker: "ibkr",
           brokerLabel: `Interactive Brokers – ${account.id}`,
           totalValue,
+          cashValue,
           currency: currency || readBaseCurrency() || "USD",
           positions,
           warnings,

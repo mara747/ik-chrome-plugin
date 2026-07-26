@@ -62,7 +62,9 @@ klubu; `club.js` ho doručuje stránce, dokud portfolio stránka nepotvrdí ACK
    broker, brokerLabel, portfolioUrl, isPortfolioPage, scrape })`; `scrape()`
    vrací `{ ok: true, payload }` s pozicemi `{ ticker, shares, avgCost,
    currency, note }` (ticker ve formátu Yahoo Finance) nebo `{ ok: false,
-   error, needsCalibration }`.
+   error, needsCalibration }`. Když broker umí říct, kolik z celkové hodnoty
+   je hotovost, pošli ji ve volitelném `payload.cashValue` (v měně payloadu) —
+   web ji ukáže u portfolia; bez ní si rozdíl jen odhadne.
 2. Do `manifest.json` přidej blok `content_scripts` s doménami brokera
    (`lib/normalize.js` vždy jako první).
 3. Volitelně přidej zkratku do `popup/popup.html` (`.broker-link`).

@@ -106,6 +106,7 @@
     let totalValue = null;
     let totalCurrency = null;
     let positionsValue = 0;
+    let cashValue = null; // broker-reported cash rows (ADR 0005); null = none seen
 
     for (const row of rows) {
       const cells = [...row.cells];
@@ -117,7 +118,11 @@
         totalCurrency = sum[2] || totalCurrency;
         continue;
       }
-      if (isCashSymbol(symbol)) continue; // hotovost: jen v součtu
+      if (isCashSymbol(symbol)) { // hotovost: v součtu a v cashValue, ne v pozicích
+        const v = num(cells[map.endValue]);
+        if (v != null) cashValue = (cashValue || 0) + v;
+        continue;
+      }
 
       const shares = num(cells[map.endShares]);
       if (!Number.isFinite(shares) || shares === 0) continue; // uzavřená pozice
@@ -147,7 +152,7 @@
 
     if (totalValue === null && !positions.length) return null;
     return {
-      positions, noAvg, uncalibrated,
+      positions, noAvg, uncalibrated, cashValue,
       totalValue: totalValue === null ? positionsValue : totalValue,
       totalCurrency, positionsValue,
       name: portfolioName(table),
@@ -178,6 +183,7 @@
     let totalValue = null;
     let totalCurrency = null;
     let positionsValue = 0;
+    let cashValue = null;
 
     for (const row of rows) {
       const cells = [...row.cells];
@@ -189,7 +195,11 @@
         totalCurrency = sum[2] || totalCurrency;
         continue;
       }
-      if (isCashSymbol(symbol)) continue;
+      if (isCashSymbol(symbol)) {
+        const v = num(cells[map.value]);
+        if (v != null) cashValue = (cashValue || 0) + v;
+        continue;
+      }
 
       const shares = num(cells[map.qty]);
       if (!Number.isFinite(shares) || shares === 0) continue;
@@ -210,7 +220,7 @@
 
     if (totalValue === null && !positions.length) return null;
     return {
-      positions, noAvg: positions.map((p) => p.ticker), uncalibrated,
+      positions, noAvg: positions.map((p) => p.ticker), uncalibrated, cashValue,
       totalValue: totalValue === null ? positionsValue : totalValue,
       totalCurrency, positionsValue,
       name: portfolioName(table),
@@ -291,6 +301,9 @@
           broker: "fio",
           brokerLabel: parsed.name ? `Fio – ${parsed.name}` : "Fio e-Broker",
           totalValue: parsed.totalValue,
+          // Majetek of the cash rows (CZK-converted, same column as Součet);
+          // null when the view showed no cash row at all.
+          cashValue: parsed.cashValue,
           currency: parsed.totalCurrency || "CZK",
           positions: parsed.positions,
           warnings,

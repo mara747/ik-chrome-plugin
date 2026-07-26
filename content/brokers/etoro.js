@@ -191,17 +191,21 @@
         total = IK.findLabelledValue(/hodnota|equity|value/i, "dot")
           || { value: null, currency: null };
       }
+      let cashValue = null;
       if (total.value == null) {
         warnings.push("Celkovou hodnotu portfolia jsem na stránce nenašel — pošlu jen pozice.");
       } else {
         // eToro "equity" zahrnuje i neinvestované volné prostředky, pozice ne.
         // Spočti rozdíl proti součtu equity buněk a řekni to členovi — stejná
         // konvence jako Portu/Fio/Anycoin (hotovost jen v celkové hodnotě).
+        // eToro cash nikde nevypisuje, takže tenhle rozdíl JE nahlášená
+        // hodnota (ADR 0005) — obě strany jsou eToro čísla z téže tabulky.
         const rowSum = IK.pickAll(document, [CELL("equity")])
           .map((el) => IK.parseNumber(el.innerText, "dot"))
           .filter((v) => v != null)
           .reduce((s, v) => s + v, 0);
         const cash = total.value - rowSum;
+        if (rowSum > 0 && cash > 0) cashValue = cash;
         if (rowSum > 0 && cash > Math.max(1, total.value * 0.005)) {
           warnings.push(
             `Volné prostředky ≈ ${Math.round(cash).toLocaleString("cs-CZ")} ` +
@@ -219,6 +223,7 @@
           broker: "etoro",
           brokerLabel,
           totalValue: total.value,
+          cashValue,
           currency: total.currency || "USD",
           positions,
           warnings,

@@ -353,6 +353,9 @@
           broker: "anycoin",
           brokerLabel: "Anycoin",
           totalValue,
+          // Fiat wallets in CZK (ADR 0005 broker-reported cash); 0 is a real
+          // "no fiat" answer, not unknown — the web then skips its estimate.
+          cashValue,
           currency: "CZK",
           positions,
           warnings,

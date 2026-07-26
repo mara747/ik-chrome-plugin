@@ -290,6 +290,7 @@
               broker: "portu",
               brokerLabel: "Portu",
               totalValue: investedRef + (cash || 0),
+              cashValue: cash,
               currency: (summary && summary.Currency) || "CZK",
               positions,
               warnings,
@@ -353,6 +354,13 @@
           "součástí celkové hodnoty, ale ne pozic.",
         );
       }
+      // Broker-reported cash (ADR 0005): CashComposition when it answers,
+      // else the total − Σ positions difference (both sides are Portu's own
+      // CZK reference numbers, so this is still the broker's figure).
+      const cashComp = cashFromComposition(comp);
+      const cashValue = cashComp != null
+        ? cashComp
+        : (positions.length && cashRef > 0 ? cashRef : null);
       if (!positions.length) {
         warnings.push(comp
           ? "Portfolio nemá žádné pozice — importuje se jen celková hodnota."
@@ -366,6 +374,7 @@
           broker: "portu",
           brokerLabel: name ? `Portu – ${name}` : "Portu",
           totalValue,
+          cashValue,
           // displayCurrency=CZK is requested explicitly above.
           currency: (summary && summary.Currency) || "CZK",
           positions,

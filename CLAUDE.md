@@ -42,9 +42,16 @@ same convention as the sibling projects.
    `member_portfolios.broker_*` columns (migration in
    `../value-invest/docs/supabase-schema.sql`).
 
-Payload contract: `{ broker, brokerLabel, totalValue, currency, positions:
-[{ticker, shares, avgCost, currency, note}], warnings[], scrapedAt }` —
-tickers already normalized to Yahoo format (`IK.yahooSymbol`).
+Payload contract: `{ broker, brokerLabel, totalValue, cashValue?, currency,
+positions: [{ticker, shares, avgCost, currency, note}], warnings[],
+scrapedAt }` — tickers already normalized to Yahoo format (`IK.yahooSymbol`).
+`cashValue` (optional, in payload currency, since 0.1.7 / ADR 0005 in the
+monorepo) is the broker-reported cash inside totalValue: IBKR
+`/summary.totalcashvalue` (can be negative on margin), Portu CashComposition
+(fallback total − Σ MarketPriceTotalRef), Anycoin fiat wallets in CZK (0 =
+really no fiat), Fio cash rows' Majetek, eToro total − Σ equity cells.
+null/absent = broker doesn't say → the web keeps deriving it from
+`broker_value` − positions.
 
 ## Key invariants & gotchas
 
