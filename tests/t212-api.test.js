@@ -1,0 +1,433 @@
+"use strict";
+
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+const { buildPayload, ENDPOINTS, API_ROOT, fetchT212Data } = require("../content/brokers/t212-api.js");
+
+const account = { id: 7, tradingType: "EQUITY", type: "LIVE", currencyCode: "CZK" };
+const summary = {
+  open: [{ code: "ACME_NL_EQ", quantity: 4.5, averagePrice: 58.84 }],
+  cash: { free: 120, total: 120 },
+  accountsByType: { equity: { total: 1000 } },
+};
+const currentSummary = {
+  activeAccountCurrency: "CZK",
+  accountsByType: {
+    EQUITY: {
+      cash: {
+        ppl: 0,
+        result: 0,
+        total: 1000,
+        margin: null,
+        free: null,
+        indicator: null,
+        blockedForStocks: 0,
+        pieCash: 0,
+        stockInvestment: 880,
+        investPot: 100,
+        spendingPot: 20,
+        netDeposit: 900,
+      },
+      open: [{ code: "ACME_NL_EQ", quantity: 4.5, averagePrice: 58.84 }],
+      orders: [],
+      valueOrders: [],
+    },
+  },
+};
+const instruments = [{
+  ticker: "ACME_NL_EQ",
+  currency: "EUR",
+  shortName: "Acme N.V.",
+  isin: "NL0000000001",
+}];
+
+test("builds a normalized payload from original instrument values", () => {
+  const result = buildPayload({ account, summary, instruments, now: "2026-08-04T12:00:00.000Z" });
+
+  assert.deepEqual(result, {
+    ok: true,
+    payload: {
+      broker: "t212",
+      brokerLabel: "Trading 212",
+      totalValue: 1000,
+      cashValue: 120,
+      currency: "CZK",
+      positions: [{
+        ticker: "ACME.AS",
+        shares: 4.5,
+        avgCost: 58.84,
+        currency: "EUR",
+        note: "ISIN: NL0000000001; název: Acme N.V.",
+      }],
+      warnings: [],
+      scrapedAt: "2026-08-04T12:00:00.000Z",
+    },
+  });
+});
+
+test("rejects a position with no original average price", () => {
+  const result = buildPayload({
+    account,
+    summary: { ...summary, open: [{ ...summary.open[0], averagePrice: null }] },
+    instruments,
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.needsCalibration, true);
+  assert.match(result.error, /průměrnou nákupní cenu/i);
+});
+
+test("separates total account value from invest and spending cash", () => {
+  const result = buildPayload({
+    account,
+    summary: {
+      ...summary,
+      cash: { total: 1000, free: 75, investPot: 100, spendingPot: 20 },
+    },
+    instruments,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.payload.totalValue, 1000);
+  assert.equal(result.payload.cashValue, 120);
+});
+
+test("keeps the base ticker and reports an unknown venue", () => {
+  const result = buildPayload({
+    account,
+    summary: { ...summary, open: [{ ...summary.open[0], code: "ACME_XX_EQ" }] },
+    instruments: [{ ...instruments[0], ticker: "ACME_XX_EQ" }],
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.payload.positions[0].ticker, "ACME");
+  assert.match(result.payload.warnings[0], /neznámou burzu/i);
+});
+
+test("maps verified T212 exchange shorthand codes to Yahoo suffixes", () => {
+  const cases = [
+    { code: "ACMEa_EQ", yahooTicker: "ACME.AS" },
+    { code: "ACMEd_EQ", yahooTicker: "ACME.DE" },
+    { code: "ACMEl_EQ", yahooTicker: "ACME.L" },
+    { code: "ACMEp_EQ", yahooTicker: "ACME.PA" },
+  ];
+
+  const actual = cases.map(({ code }) => buildPayload({
+    account,
+    summary: { ...summary, open: [{ ...summary.open[0], code }] },
+    instruments: [{ ...instruments[0], ticker: code }],
+  })).map((result) => result.ok ? result.payload.positions[0].ticker : result.error);
+
+  assert.deepEqual(actual, cases.map(({ yahooTicker }) => yahooTicker));
+});
+
+test("matches uppercase position codes to canonical instrument tickers", () => {
+  const result = buildPayload({
+    account,
+    summary: { ...summary, open: [{ ...summary.open[0], code: "ACMEL_EQ" }] },
+    instruments: [{ ...instruments[0], ticker: "ACMEl_EQ" }],
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.payload.positions[0].ticker, "ACME.L");
+  assert.equal(result.payload.positions[0].currency, "EUR");
+});
+
+test("reports missing instrument metadata separately from a missing currency", () => {
+  const result = buildPayload({ account, summary, instruments: [] });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.needsCalibration, true);
+  assert.match(result.error, /metadata instrumentu/i);
+  assert.doesNotMatch(result.error, /měnu instrumentu/i);
+});
+
+test("exports the session API paths used by the importer", () => {
+  assert.deepEqual(ENDPOINTS, {
+    accounts: "/rest/v1/accounts",
+    summary: "/rest/v1/equity/multi-accounts/summary",
+    instruments: "/instrumentarium/v2/instruments/find",
+    instrumentCatalog: "/instrumentarium/v2/instruments/0",
+  });
+});
+
+test("uses the logged-in session for accounts, positions and metadata", async () => {
+  const requests = [];
+  const replies = [
+    [account],
+    summary,
+    instruments,
+  ];
+  const fetchImpl = async (url, init) => {
+    requests.push({ url, init });
+    return { ok: true, json: async () => replies.shift() };
+  };
+
+  const data = await fetchT212Data(fetchImpl);
+
+  assert.deepEqual(data, { account, summary, instruments });
+  assert.deepEqual(requests.map((request) => request.url), [
+    `${API_ROOT}/rest/v1/accounts`,
+    `${API_ROOT}/rest/v1/equity/multi-accounts/summary?targetCurrency=CZK`,
+    `${API_ROOT}/instrumentarium/v2/instruments/find`,
+  ]);
+  assert.equal(requests.every((request) => request.init.credentials === "include"), true);
+  assert.equal(requests[1].init.body, "[]");
+  assert.equal(requests[2].init.body, '["ACME_NL_EQ"]');
+});
+
+test("recovers metadata omitted by /find from the T212 instrument catalog", async () => {
+  const requests = [];
+  const catalogInstrument = {
+    ticker: "ACME_NL_EQ",
+    type: "STOCK",
+    currency: "EUR",
+    shortName: "Acme N.V.",
+    fullName: "Acme N.V.",
+    exchangeId: 1,
+    isin: "NL0000000001",
+  };
+  const replies = [
+    [account],
+    summary,
+    [],
+    { timestamp: 123, instruments: [catalogInstrument] },
+  ];
+  const fetchImpl = async (url, init) => {
+    requests.push({ url, init });
+    return { ok: true, json: async () => replies.shift() };
+  };
+
+  const data = await fetchT212Data(fetchImpl, {
+    deviceId: "transient-device",
+    appVersion: "8.41.0",
+  });
+  const result = buildPayload({ ...data, now: "2026-08-04T12:00:00.000Z" });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.payload.positions[0].currency, "EUR");
+  assert.equal(result.payload.positions[0].ticker, "ACME.AS");
+  assert.deepEqual(data.instruments, [catalogInstrument]);
+  assert.equal(
+    requests[3].url,
+    `${API_ROOT}/instrumentarium/v2/instruments/0`,
+  );
+  assert.equal(requests[3].init.method, undefined);
+  assert.equal(requests[3].init.body, undefined);
+});
+
+test("selects the live Equity account from the current accounts wrapper", async () => {
+  const replies = [
+    { liveAccounts: [account], demoAccounts: [] },
+    summary,
+    instruments,
+  ];
+  const fetchImpl = async () => ({ ok: true, json: async () => replies.shift() });
+
+  const data = await fetchT212Data(fetchImpl, {
+    deviceId: "transient-device",
+    appVersion: "8.41.0",
+  });
+
+  assert.deepEqual(data, { account, summary, instruments });
+});
+
+test("imports the active account slice from the current multi-account summary", async () => {
+  const replies = [
+    { liveAccounts: [account], demoAccounts: [] },
+    currentSummary,
+    instruments,
+  ];
+  const fetchImpl = async () => ({ ok: true, json: async () => replies.shift() });
+
+  const data = await fetchT212Data(fetchImpl, {
+    deviceId: "transient-device",
+    appVersion: "8.41.0",
+  });
+  const result = buildPayload({ ...data, now: "2026-08-04T12:00:00.000Z" });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.payload.totalValue, 1000);
+  assert.equal(result.payload.cashValue, 120);
+  assert.deepEqual(result.payload.positions.map(({ ticker, shares, avgCost, currency }) => ({
+    ticker, shares, avgCost, currency,
+  })), [{ ticker: "ACME.AS", shares: 4.5, avgCost: 58.84, currency: "EUR" }]);
+});
+
+test("adds transient Trading 212 client headers without persisting them", async () => {
+  const requests = [];
+  const replies = [[account], summary, instruments];
+  const fetchImpl = async (url, init) => {
+    requests.push({ url, init });
+    return { ok: true, json: async () => replies.shift() };
+  };
+
+  await fetchT212Data(fetchImpl, { deviceId: "transient-device", appVersion: "8.41.0" });
+
+  assert.deepEqual(requests.map((request) => request.init.headers["X-Trader-Target-Type"]), [
+    "EQUITY", "EQUITY", "EQUITY",
+  ]);
+  assert.equal(requests[0].init.headers["X-Trader-Device-Model"], "Chrome");
+  assert.equal(
+    requests[0].init.headers["X-Trader-Client"],
+    "application=WC4,version=8.41.0,dUUID=transient-device",
+  );
+  assert.equal(
+    requests[1].init.headers["X-Trader-Client"],
+    "application=WC4,version=8.41.0,dUUID=transient-device,accountId=7",
+  );
+});
+
+test("reports only the failed API stage and HTTP status", async () => {
+  const fetchImpl = async () => ({ ok: false, status: 403, json: async () => ({ ignored: true }) });
+
+  await assert.rejects(
+    () => fetchT212Data(fetchImpl, { deviceId: "transient-device", appVersion: "8.41.0" }),
+    (error) => error.t212Stage === "accounts" && error.t212Status === 403,
+  );
+});
+
+test("labels malformed responses with the endpoint that returned them", async () => {
+  const scenarios = [
+    { expectedStage: "accounts", replies: [{ liveAccounts: [account] }] },
+    { expectedStage: "summary", replies: [[account], { open: null }] },
+    { expectedStage: "instruments", replies: [[account], summary, { instruments: [] }] },
+  ];
+  const actualStages = [];
+
+  for (const scenario of scenarios) {
+    const replies = [...scenario.replies];
+    const fetchImpl = async () => ({ ok: true, json: async () => replies.shift() });
+    try {
+      await fetchT212Data(fetchImpl, { deviceId: "transient-device", appVersion: "8.41.0" });
+      actualStages.push("no error");
+    } catch (error) {
+      actualStages.push(error.t212Stage);
+    }
+  }
+
+  assert.deepEqual(actualStages, scenarios.map((scenario) => scenario.expectedStage));
+});
+
+test("labels a missing page fetch as an importer-runtime failure", async () => {
+  await assert.rejects(
+    () => fetchT212Data(null, { deviceId: "transient-device", appVersion: "8.41.0" }),
+    (error) => error.t212Stage === "runtime",
+  );
+});
+
+test("keeps both T212 execution-world resources with the broker adapters", () => {
+  const manifest = require("../manifest.json");
+  const mainWorld = manifest.content_scripts.find((entry) => entry.world === "MAIN");
+  const isolatedWorld = manifest.content_scripts.find((entry) => (
+    entry.matches?.includes("https://app.trading212.com/*") && entry.world !== "MAIN"
+  ));
+
+  assert.ok(mainWorld);
+  assert.deepEqual(mainWorld.js, ["content/brokers/t212-api.js"]);
+  assert.equal(mainWorld.run_at, "document_idle");
+  assert.ok(isolatedWorld);
+  assert.deepEqual(isolatedWorld.js, ["lib/normalize.js", "content/brokers/t212.js"]);
+  assert.equal(mainWorld.js.some((file) => file.startsWith("lib/") || file === "content/t212-page-api.js"), false);
+  assert.equal(manifest.host_permissions, undefined);
+});
+
+test("uses the page-global fetch when a free fetch binding is unavailable", async () => {
+  const source = fs.readFileSync(require.resolve("../content/brokers/t212-api.js"), "utf8");
+  const replies = [[account], summary, instruments];
+  const requests = [];
+  const pageFetch = async (url, init) => {
+    requests.push({ url, init });
+    return { ok: true, json: async () => replies.shift() };
+  };
+  let messageListener;
+  let postedMessage;
+  const sandbox = {
+    fetch: pageFetch,
+    crypto: { randomUUID: () => "synthetic-device" },
+    location: { origin: "https://app.trading212.com" },
+  };
+  sandbox.window = {
+    addEventListener(type, listener) {
+      if (type === "message") messageListener = listener;
+    },
+    postMessage(message) {
+      postedMessage = message;
+    },
+  };
+  sandbox.lexicalScope = new Proxy({}, {
+    has(_target, property) {
+      return property === "fetch";
+    },
+    get(_target, property) {
+      if (property === Symbol.unscopables) return undefined;
+      if (property === "fetch") throw new ReferenceError("free fetch binding is unavailable");
+      return undefined;
+    },
+  });
+
+  vm.createContext(sandbox);
+  vm.runInContext(
+    `(function (scope) { with (scope) { return function () {\n${source}\n}; } })(lexicalScope)();`,
+    sandbox,
+  );
+  await messageListener({
+    source: sandbox.window,
+    origin: sandbox.location.origin,
+    data: {
+      channel: "ik-t212-session-bridge",
+      type: "request",
+      requestId: "request",
+      nonce: "nonce",
+    },
+  });
+
+  assert.equal(requests.length, 3);
+  assert.equal(postedMessage.result.ok, true);
+});
+
+test("registers only the isolated scraper when extension APIs are available", () => {
+  const source = fs.readFileSync(require.resolve("../content/brokers/t212.js"), "utf8");
+  let registered;
+  let pageListeners = 0;
+  const sandbox = {
+    chrome: { runtime: { id: "synthetic-extension" } },
+    IK: { registerScraper(definition) { registered = definition; } },
+    window: { addEventListener() { pageListeners += 1; } },
+    location: { origin: "https://app.trading212.com" },
+    setTimeout,
+    clearTimeout,
+  };
+  sandbox.globalThis = sandbox;
+
+  vm.createContext(sandbox);
+  vm.runInContext(source, sandbox);
+
+  assert.equal(registered.broker, "t212");
+  assert.equal(pageListeners, 0);
+});
+
+test("registers the isolated scraper when normalize exposes only IK", () => {
+  const source = fs.readFileSync(require.resolve("../content/brokers/t212.js"), "utf8");
+  let registered;
+  let pageListeners = 0;
+  const sandbox = {
+    IK: { registerScraper(definition) { registered = definition; } },
+    window: { addEventListener() { pageListeners += 1; } },
+    location: { origin: "https://app.trading212.com" },
+  };
+  sandbox.globalThis = sandbox;
+
+  vm.createContext(sandbox);
+  vm.runInContext(source, sandbox);
+
+  assert.equal(registered.broker, "t212");
+  assert.equal(pageListeners, 0);
+});
+
+test("exports the T212 API functions from the MAIN-world broker adapter in Node", () => {
+  assert.equal(typeof buildPayload, "function");
+  assert.equal(typeof fetchT212Data, "function");
+});
