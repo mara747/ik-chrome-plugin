@@ -9,8 +9,13 @@ const { buildPayload, ENDPOINTS, API_ROOT, fetchT212Data } = require("../content
 const account = { id: 7, tradingType: "EQUITY", type: "LIVE", currencyCode: "CZK" };
 const summary = {
   open: [{ code: "ACME_NL_EQ", quantity: 4.5, averagePrice: 58.84 }],
-  cash: { free: 120, total: 120 },
-  accountsByType: { equity: { total: 1000 } },
+  cash: { free: 120, total: 1000 },
+  accountsByType: {
+    EQUITY: {
+      open: [{ code: "ACME_NL_EQ", quantity: 4.5, averagePrice: 58.84 }],
+      cash: { free: 120, total: 1000 },
+    },
+  },
 };
 const currentSummary = {
   activeAccountCurrency: "CZK",
@@ -254,6 +259,35 @@ test("imports the active account slice from the current multi-account summary", 
   assert.deepEqual(result.payload.positions.map(({ ticker, shares, avgCost, currency }) => ({
     ticker, shares, avgCost, currency,
   })), [{ ticker: "ACME.AS", shares: 4.5, avgCost: 58.84, currency: "EUR" }]);
+});
+
+test("reads total value only from the selected account type", async () => {
+  const summaryWithOtherAccountData = {
+    ...currentSummary,
+    total: 9000,
+    accountsByType: {
+      ...currentSummary.accountsByType,
+      CFD: {
+        cash: { total: 8000 },
+        open: [],
+      },
+    },
+  };
+  const replies = [
+    { liveAccounts: [account], demoAccounts: [] },
+    summaryWithOtherAccountData,
+    instruments,
+  ];
+  const fetchImpl = async () => ({ ok: true, json: async () => replies.shift() });
+
+  const data = await fetchT212Data(fetchImpl, {
+    deviceId: "transient-device",
+    appVersion: "8.41.0",
+  });
+  const result = buildPayload({ ...data });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.payload.totalValue, 1000);
 });
 
 test("adds transient Trading 212 client headers without persisting them", async () => {

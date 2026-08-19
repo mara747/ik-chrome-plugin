@@ -84,23 +84,8 @@ var IKT212Api = (() => {
   }
 
   function readTotalValue(summary, account) {
-    const candidates = [summary?.total, summary?.totalValue, summary?.value];
-    const accountValues = summary?.accountsByType;
-    if (accountValues && typeof accountValues === "object") {
-      const preferredKeys = [account?.id, account?.type, account?.tradingType]
-        .filter((value) => value != null)
-        .map((value) => String(value).toLowerCase());
-      for (const [key, value] of Object.entries(accountValues)) {
-        if (preferredKeys.includes(String(key).toLowerCase())) {
-          candidates.push(value?.total, value?.totalValue, value?.value, value?.cash?.total);
-        }
-      }
-      for (const value of Object.values(accountValues)) {
-        candidates.push(value?.total, value?.totalValue, value?.value, value?.cash?.total);
-      }
-    }
-    candidates.push(summary?.cash?.total);
-    return candidates.map(asNumber).find((value) => value != null) ?? null;
+    const tradingType = String(account?.tradingType || "").toUpperCase();
+    return asNumber(summary?.accountsByType?.[tradingType]?.cash?.total);
   }
 
   function readCashValue(cash) {
