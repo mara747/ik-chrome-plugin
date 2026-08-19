@@ -168,7 +168,7 @@ var IKT212Api = (() => {
         return calibrationError("Trading 212 vrátilo ticker v neznámém formátu.");
       }
       if (!mapped.knownVenue) {
-        warnings.push(`Ticker ${code} používá neznámou burzu (${mapped.venue}); ověřte symbol ${mapped.ticker}.`);
+        return calibrationError(`Trading 212 vrátilo ticker z neznámé burzy (${mapped.venue}). Nahlaste prosím tento ticker, aby šlo doplnit správnou Yahoo příponu.`);
       }
       positions.push({
         ticker: mapped.ticker,

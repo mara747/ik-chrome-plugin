@@ -94,16 +94,16 @@ test("separates total account value from invest and spending cash", () => {
   assert.equal(result.payload.cashValue, 120);
 });
 
-test("keeps the base ticker and reports an unknown venue", () => {
+test("rejects a ticker from an unknown exchange venue", () => {
   const result = buildPayload({
     account,
     summary: { ...summary, open: [{ ...summary.open[0], code: "ACME_XX_EQ" }] },
     instruments: [{ ...instruments[0], ticker: "ACME_XX_EQ" }],
   });
 
-  assert.equal(result.ok, true);
-  assert.equal(result.payload.positions[0].ticker, "ACME");
-  assert.match(result.payload.warnings[0], /neznámou burzu/i);
+  assert.equal(result.ok, false);
+  assert.equal(result.needsCalibration, true);
+  assert.match(result.error, /neznámé burzy/i);
 });
 
 test("maps verified T212 exchange shorthand codes to Yahoo suffixes", () => {
