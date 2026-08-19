@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Investiční klub — import portfolia",
-  "version": "0.1.7",
-  "description": "Načte hodnotu a pozice z přihlášené stránky brokera (eToro, IBKR, Portu, Fio, Anycoin) a naimportuje je do otevřeného portfolia na webu Investičního klubu.",
+  "version": "0.2.0",
+  "description": "Načte hodnotu a pozice z přihlášené stránky brokera (eToro, IBKR, Trading 212, Portu, Fio, Anycoin) a naimportuje je do otevřeného portfolia na webu Investičního klubu.",
   "action": {
     "default_popup": "popup/popup.html",
     "default_title": "Import portfolia do Investičního klubu"
@@ -36,6 +36,17 @@
     {
       "matches": ["https://www.anycoin.cz/*", "https://anycoin.cz/*"],
       "js": ["lib/normalize.js", "content/brokers/anycoin.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://app.trading212.com/*"],
+      "js": ["content/brokers/t212-api.js"],
+      "world": "MAIN",
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://app.trading212.com/*"],
+      "js": ["lib/normalize.js", "content/brokers/t212.js"],
       "run_at": "document_idle"
     },
     {

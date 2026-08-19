@@ -1,7 +1,7 @@
 # Import portfolia od brokera — návod pro členy
 
 Rozšíření do Chrome, které načte hodnotu a pozice z tvé **přihlášené** stránky
-brokera (eToro, Interactive Brokers, Portu) a naimportuje je do tvého portfolia
+brokera (eToro, Interactive Brokers, Trading 212, Portu) a naimportuje je do tvého portfolia
 na webu klubu. Nic se neukládá samo — na webu se otevře tabulka, kterou
 zkontroluješ a uložíš.
 
@@ -27,6 +27,8 @@ stránce webu klubu, přihlášené pod tvým účtem.
      pozic), nebo svůj přehled.
    - **Interactive Brokers** — přihlas se do Client Portalu (stačí být kdekoli
      po přihlášení).
+   - **Trading 212** — přihlas se na `app.trading212.com` k účtu Invest; stačí
+     mít otevřenou aplikaci brokera.
    - **Portu** — otevři detail konkrétního portfolia (Souhrn → klikni na
      portfolio).
 2. Klikni na ikonu rozšíření → **Načíst portfolio**.
@@ -45,6 +47,10 @@ stránce webu klubu, přihlášené pod tvým účtem.
   Před uložením zkontroluj u těchto řádků měnu (GBX / USD).
 - **Interactive Brokers:** hodnota i pozice se čtou z tvé přihlášené session —
   když to hlásí „vypršelou session", obnov stránku (F5) a zkus znovu.
+- **Trading 212:** import používá pouze přihlášenou session aplikace a načte
+  otevřené pozice, průměrné nákupní ceny v původních měnách instrumentů,
+  celkovou hodnotu účtu a hotovost. Nevyžaduje CSV export, heslo ani API klíč.
+  Když import ohlásí chybu API, obnov stránku brokera (F5) a zkus jej znovu.
 - **Portu:** importuje se hodnota + fondy vybraného portfolia; hotovost je
   součástí celkové hodnoty, ne pozic.
 

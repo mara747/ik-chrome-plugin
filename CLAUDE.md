@@ -6,7 +6,7 @@ Project notes for Claude Code. Keep short and accurate.
 
 Chrome extension (Manifest V3, vanilla JS, **no build step**) for Investiční
 klub members: scrapes the member's OWN logged-in broker portfolio page (eToro,
-IBKR, Portu, Fio; XTB planned) and imports value + positions into the currently
+IBKR, Trading 212, Portu, Fio, Anycoin; XTB planned) and imports value + positions into the currently
 open portfolio on the club web (`../investicni-klub`, prod
 https://investicni-klub.lovable.app). README.md has the member-facing docs and
 the add-a-broker guide.
@@ -122,6 +122,17 @@ null/absent = broker doesn't say → the web keeps deriving it from
   fallback — each failing endpoint returns a Czech, actionable error
   (expired session → F5). Only DOM touchpoints: account id from the header
   (multi-account pick) and the `.ptf-positions[nlv]` Net Liq backup.
+- Trading 212 is API-ONLY: a content script on `app.trading212.com` fetches
+  the member's existing session at `live.services.trading212.com` with
+  `credentials: "include"`: `GET /rest/v1/accounts`, then
+  `POST /rest/v1/equity/multi-accounts/summary?targetCurrency=<account currency>`,
+  then `POST /instrumentarium/v2/instruments/find`. If `/find` omits metadata
+  for an open code, fetch `GET /instrumentarium/v2/instruments/0` and retain
+  only the missing open-position instruments from that catalog. Position data
+  must use `quantity`, **`averagePrice`** (never `averagePriceConverted`), and
+  metadata `currency`; invalid or incomplete responses fail closed. Never inspect,
+  persist, log, or commit cookies, response bodies, account IDs, or member
+  portfolio values. There is no DOM or CSV fallback.
 
 ## Validation
 
