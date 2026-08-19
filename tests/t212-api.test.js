@@ -158,6 +158,19 @@ test("matches uppercase position codes to canonical instrument tickers", () => {
   assert.equal(result.payload.positions[0].currency, "EUR");
 });
 
+test("preserves GBX prices and maps London instruments to Yahoo .L", () => {
+  const result = buildPayload({
+    account,
+    summary: { ...summary, open: [{ ...summary.open[0], code: "ACME_GB_EQ", averagePrice: 1234.5 }] },
+    instruments: [{ ...instruments[0], ticker: "ACME_GB_EQ", currency: "GBX" }],
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.payload.positions[0].ticker, "ACME.L");
+  assert.equal(result.payload.positions[0].currency, "GBX");
+  assert.equal(result.payload.positions[0].avgCost, 1234.5);
+});
+
 test("reports missing instrument metadata separately from a missing currency", () => {
   const result = buildPayload({ account, summary, instruments: [] });
 
