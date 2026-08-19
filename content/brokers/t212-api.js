@@ -100,7 +100,7 @@ var IKT212Api = (() => {
     return candidates.map(asNumber).find((value) => value != null) ?? null;
   }
 
-  function buildPayload({ account, summary, instruments, now = new Date().toISOString() }) {
+  function buildPayload({ account, summary, instruments, warnings: importWarnings = [], now = new Date().toISOString() }) {
     const currency = asCurrency(account?.currencyCode);
     if (!currency) return calibrationError("Trading 212 nevrátilo měnu investičního účtu.");
     if (!summary || !Array.isArray(summary.open)) {
@@ -114,9 +114,10 @@ var IKT212Api = (() => {
     if (totalValue == null) {
       return calibrationError("Trading 212 nevrátilo celkovou hodnotu účtu.");
     }
+    const warnings = Array.isArray(importWarnings) ? [...importWarnings] : [];
     const cashValue = readCashValue(summary?.cash);
     if (cashValue == null) {
-      return calibrationError("Trading 212 nevrátilo hotovost na účtu.");
+      warnings.push("Trading 212 nevrátilo hotovost; web klubu ji dopočítá z celkové hodnoty a pozic.");
     }
 
     const metadataByTicker = new Map();
@@ -126,7 +127,6 @@ var IKT212Api = (() => {
     }
 
     const positions = [];
-    const warnings = [];
     for (const position of summary.open) {
       const code = String(position?.code || "").trim();
       const shares = asNumber(position?.quantity);
@@ -189,13 +189,11 @@ var IKT212Api = (() => {
     return accountsResponse.liveAccounts;
   }
 
-  function findLiveEquityAccount(accountsResponse) {
+  function findLiveEquityAccounts(accountsResponse) {
     const accounts = readLiveAccounts(accountsResponse);
-    const account = accounts.find((candidate) => String(candidate?.tradingType || "").toUpperCase() === "EQUITY"
+    return accounts.filter((candidate) => String(candidate?.tradingType || "").toUpperCase() === "EQUITY"
       && String(candidate?.type || "").toUpperCase() === "LIVE"
       && asCurrency(candidate?.currencyCode));
-    if (!account) throw requestError("accounts");
-    return account;
   }
 
   function readAccountSummary(summaryResponse, account) {
@@ -298,7 +296,12 @@ var IKT212Api = (() => {
     if (typeof fetchImpl !== "function") throw requestError("runtime");
     const client = createClientContext(clientOverrides);
     const accounts = await requestJson(fetchImpl, ENDPOINTS.accounts, {}, traderHeaders(client), "accounts");
-    const account = findLiveEquityAccount(accounts);
+    const liveEquityAccounts = findLiveEquityAccounts(accounts);
+    const account = liveEquityAccounts[0];
+    if (!account) throw requestError("accounts");
+    const warnings = liveEquityAccounts.length > 1
+      ? ["Trading 212 vrátilo více živých investičních účtů; načten byl první v pořadí. Před odesláním ověř hodnotu a pozice."]
+      : [];
     const headers = traderHeaders(client, account.id);
     const summaryResponse = await requestJson(
       fetchImpl,
@@ -337,7 +340,7 @@ var IKT212Api = (() => {
         return ticker && missingCodeSet.has(ticker);
       }));
     }
-    return { account, summary, instruments };
+    return { account, summary, instruments, warnings };
   }
 
   const exported = {

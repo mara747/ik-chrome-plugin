@@ -99,6 +99,24 @@ test("separates total account value from invest and spending cash", () => {
   assert.equal(result.payload.cashValue, 120);
 });
 
+test("continues with a warning when Trading 212 omits the cash breakdown", () => {
+  const result = buildPayload({
+    account,
+    summary: {
+      ...summary,
+      cash: { total: 1000 },
+      accountsByType: { EQUITY: { ...summary.accountsByType.EQUITY, cash: { total: 1000 } } },
+    },
+    instruments,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.payload.cashValue, null);
+  assert.deepEqual(result.payload.warnings, [
+    "Trading 212 nevrátilo hotovost; web klubu ji dopočítá z celkové hodnoty a pozic.",
+  ]);
+});
+
 test("rejects a ticker from an unknown exchange venue", () => {
   const result = buildPayload({
     account,
@@ -172,7 +190,7 @@ test("uses the logged-in session for accounts, positions and metadata", async ()
 
   const data = await fetchT212Data(fetchImpl);
 
-  assert.deepEqual(data, { account, summary, instruments });
+  assert.deepEqual(data, { account, summary, instruments, warnings: [] });
   assert.deepEqual(requests.map((request) => request.url), [
     `${API_ROOT}/rest/v1/accounts`,
     `${API_ROOT}/rest/v1/equity/multi-accounts/summary?targetCurrency=CZK`,
@@ -236,7 +254,27 @@ test("selects the live Equity account from the current accounts wrapper", async 
     appVersion: "8.41.0",
   });
 
-  assert.deepEqual(data, { account, summary, instruments });
+  assert.deepEqual(data, { account, summary, instruments, warnings: [] });
+});
+
+test("warns before import when Trading 212 returns multiple live Equity accounts", async () => {
+  const replies = [
+    { liveAccounts: [account, { ...account, id: 8 }], demoAccounts: [] },
+    summary,
+    instruments,
+  ];
+  const fetchImpl = async () => ({ ok: true, json: async () => replies.shift() });
+
+  const data = await fetchT212Data(fetchImpl, {
+    deviceId: "transient-device",
+    appVersion: "8.41.0",
+  });
+  const result = buildPayload(data);
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.payload.warnings, [
+    "Trading 212 vrátilo více živých investičních účtů; načten byl první v pořadí. Před odesláním ověř hodnotu a pozice.",
+  ]);
 });
 
 test("imports the active account slice from the current multi-account summary", async () => {
