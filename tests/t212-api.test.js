@@ -89,7 +89,7 @@ test("separates total account value from invest and spending cash", () => {
     account,
     summary: {
       ...summary,
-      cash: { total: 1000, free: 75, investPot: 100, spendingPot: 20 },
+      cash: { total: 1000, free: 75, investPot: 100, spendingPot: 20, pieCash: 0 },
     },
     instruments,
   });
@@ -97,6 +97,35 @@ test("separates total account value from invest and spending cash", () => {
   assert.equal(result.ok, true);
   assert.equal(result.payload.totalValue, 1000);
   assert.equal(result.payload.cashValue, 120);
+});
+
+test("includes uninvested Pie Cash in broker-reported cash", () => {
+  const result = buildPayload({
+    account,
+    summary: {
+      ...summary,
+      cash: { total: 1000, free: 75, investPot: 100, spendingPot: 20, pieCash: 30 },
+    },
+    instruments,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.payload.cashValue, 150);
+});
+
+test("does not report partial cash when the Pie Cash component is missing", () => {
+  const result = buildPayload({
+    account,
+    summary: {
+      ...summary,
+      cash: { total: 1000, free: 75, investPot: 100, spendingPot: 20 },
+    },
+    instruments,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.payload.cashValue, null);
+  assert.match(result.payload.warnings[0], /hotovost/i);
 });
 
 test("continues with a warning when Trading 212 omits the cash breakdown", () => {

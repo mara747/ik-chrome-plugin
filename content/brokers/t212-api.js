@@ -91,7 +91,14 @@ var IKT212Api = (() => {
   function readCashValue(cash) {
     const investPot = asNumber(cash?.investPot);
     const spendingPot = asNumber(cash?.spendingPot);
-    if (investPot != null && spendingPot != null) return investPot + spendingPot;
+    const pieCash = asNumber(cash?.pieCash);
+    const hasCurrentCashBreakdown = cash?.investPot !== undefined
+      || cash?.spendingPot !== undefined
+      || cash?.pieCash !== undefined;
+    if (hasCurrentCashBreakdown) {
+      if (investPot == null || spendingPot == null || pieCash == null) return null;
+      return investPot + spendingPot + pieCash;
+    }
     const candidates = [
       cash?.free,
       cash?.free?.total,
