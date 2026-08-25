@@ -60,12 +60,19 @@ balance identity produces null.
 null/absent = broker doesn't say → the web keeps deriving it from
 `broker_value` − positions.
 
-After a successful broker adapter has completed normal venue/symbol mapping,
-`IK.registerScraper` applies the exact shared `BROKER_TICKER_OVERRIDES` table
-from the top of `lib/normalize.js`. Its key is broker ID → already-normalized
-ticker → native position currency; current aliases are XTB `DOC1/USD → DOC`,
-T212 `WEBN1.DE/EUR → WEBN.DE`, and Portu `SX5EEX.DE/EUR → EUEA.AS`. Do not put
-these non-derivable aliases in individual scrapers. If an alias would collide
+Some brokers carry their OWN symbol variant for an instrument — a numbered
+ticker kept after the plain symbol was recycled to another company, or a
+different listing line of the same fund — while Yahoo (and the club web, which
+prices by Yahoo symbols) uses another one. No general suffix/venue rule can
+derive those, so after a successful broker adapter has completed normal
+venue/symbol mapping, `IK.registerScraper` applies the exact shared
+`BROKER_TICKER_OVERRIDES` table from the top of `lib/normalize.js` (full
+rationale in the comment above it). Its key is broker ID → already-normalized
+ticker → native position currency (the currency guards against remapping an
+innocent same-named ticker on another venue); current aliases are XTB
+`DOC1/USD → DOC`, T212 `WEBN1.DE/EUR → WEBN.DE`, and Portu
+`SX5EEX.DE/EUR → EUEA.AS`. Do not put these non-derivable aliases in
+individual scrapers; every new entry needs a test. If an alias would collide
 with another final `(ticker, currency)` row, do not merge or reprice positions:
 keep the original ticker and append the Czech collision audit note.
 
