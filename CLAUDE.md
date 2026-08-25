@@ -6,8 +6,8 @@ Project notes for Claude Code. Keep short and accurate.
 
 Chrome extension (Manifest V3, vanilla JS, **no build step**) for Investiční
 klub members: scrapes the member's OWN logged-in broker portfolio page (eToro,
-IBKR, Trading 212, Portu, Fio, Anycoin; XTB planned) and imports value + positions into the currently
-open portfolio on the club web (`../investicni-klub`, prod
+IBKR, Trading 212, Portu, Fio, Anycoin, XTB) and imports value + positions into
+the currently open portfolio on the club web (`../investicni-klub`, prod
 https://investicni-klub.lovable.app). README.md has the member-facing docs and
 the add-a-broker guide.
 
@@ -22,7 +22,11 @@ same convention as the sibling projects.
 ## How it works (message flow)
 
 1. Broker scraper content script registers via `IK.registerScraper` in
-   `lib/normalize.js`; popup drives it: `IK_DETECT` → `IK_SCRAPE`.
+   `lib/normalize.js`; popup drives it: `IK_DETECT` → `IK_SCRAPE`. Most brokers
+   use one ISOLATED-world script. Trading 212 and XTB deliberately split their
+   page-owned data source into a MAIN-world script and keep registration in a
+   separate ISOLATED-world script, joined by a one-time nonce-bound same-origin
+   `window.postMessage` bridge.
 2. Popup asks the club tab for the member's portfolio list (IK_PING answered
    by the `_app.tsx` layout's ExtensionBridge with `{ portfolioId,
    portfolioName, portfolios }`), the member picks the TARGET portfolio, and
@@ -49,9 +53,21 @@ scrapedAt }` — tickers already normalized to Yahoo format (`IK.yahooSymbol`).
 monorepo) is the broker-reported cash inside totalValue: IBKR
 `/summary.totalcashvalue` (can be negative on margin), Portu CashComposition
 (fallback total − Σ MarketPriceTotalRef), Anycoin fiat wallets in CZK (0 =
-really no fiat), Fio cash rows' Majetek, eToro total − Σ equity cells.
+really no fiat), Fio cash rows' Majetek, eToro total − Σ equity cells, and XTB
+free funds plus a corroborated `stockLock` reservation for recognized pending
+BUY orders. Pending SELL orders do not affect cash and are ignored; a failed
+balance identity produces null.
 null/absent = broker doesn't say → the web keeps deriving it from
 `broker_value` − positions.
+
+After a successful broker adapter has completed normal venue/symbol mapping,
+`IK.registerScraper` applies the exact shared `BROKER_TICKER_OVERRIDES` table
+from the top of `lib/normalize.js`. Its key is broker ID → already-normalized
+ticker → native position currency; current aliases are XTB `DOC1/USD → DOC`,
+T212 `WEBN1.DE/EUR → WEBN.DE`, and Portu `SX5EEX.DE/EUR → EUEA.AS`. Do not put
+these non-derivable aliases in individual scrapers. If an alias would collide
+with another final `(ticker, currency)` row, do not merge or reprice positions:
+keep the original ticker and append the Czech collision audit note.
 
 ## Key invariants & gotchas
 
@@ -133,10 +149,29 @@ null/absent = broker doesn't say → the web keeps deriving it from
   metadata `currency`; invalid or incomplete responses fail closed. Never inspect,
   persist, log, or commit cookies, response bodies, account IDs, or member
   portfolio values. There is no DOM or CSV fallback.
+- XTB is STREAM-ONLY and calibrated live (2026-08) against XStation 5. It must
+  remain two files and two execution worlds. `xtb-stream.js` runs in MAIN at
+  `document_start`, transparently wraps the page's Worker constructor, and
+  passively reduces only known completed account, catalog, trade, profit, and
+  balance response families emitted by XStation-created Workers.
+  `xtb.js` runs in ISOLATED at `document_idle`, registers through
+  `IK.registerScraper`, and requests one normalized result through the
+  nonce-bound bridge. Never merge these files: MAIN is required to observe
+  page-created Workers, while ISOLATED is required for extension registration.
+  Never create a Worker/WebSocket/HTTP request or XTB command, switch/enumerate
+  accounts, persist/log raw protocol data, or add DOM/logo/tooltip/API fallback.
+  Import only one coherent active-account generation: account identity must
+  agree across records, open trade position IDs must exactly match profit IDs,
+  symbols must match the calibrated catalog/venue map, and total equity must be
+  present. Ambiguous free funds are omitted with a warning; mixed, incomplete,
+  or unknown data fail closed with an actionable Czech error.
 
 ## Validation
 
-No build/tests. `node --check` each JS file; load unpacked in Chrome
-(`chrome://extensions` → Developer mode) and exercise against the club web on
-localhost (`bun run dev`/`npm run dev` in ../investicni-klub) — its content
-script matches `http://localhost/*` too.
+No build step. Run `node --check` for every changed JS file and `node --test`
+for the full regression suite. Then load unpacked in Chrome
+(`chrome://extensions` → Developer mode) and exercise the changed broker
+against the club web on localhost (`bun run dev`/`npm run dev` in
+`../investicni-klub`) — its content script matches `http://localhost/*` too.
+For MAIN/ISOLATED pairs, reload the extension and F5 the broker tab after any
+manifest or filename change so the `document_start` observer is installed.
