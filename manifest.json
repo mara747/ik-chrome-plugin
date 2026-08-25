@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Investiční klub — import portfolia",
-  "version": "0.2.0",
-  "description": "Načte hodnotu a pozice z přihlášené stránky brokera (eToro, IBKR, Trading 212, Portu, Fio, Anycoin) a naimportuje je do otevřeného portfolia na webu Investičního klubu.",
+  "version": "0.3.0",
+  "description": "Importuje hodnotu a pozice z eToro, IBKR, Trading 212, Portu, Fio, Anycoin a XTB do Investičního klubu.",
   "action": {
     "default_popup": "popup/popup.html",
     "default_title": "Import portfolia do Investičního klubu"
@@ -47,6 +47,17 @@
     {
       "matches": ["https://app.trading212.com/*"],
       "js": ["lib/normalize.js", "content/brokers/t212.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://xstation5.xtb.com/*"],
+      "js": ["content/brokers/xtb-stream.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://xstation5.xtb.com/*"],
+      "js": ["lib/normalize.js", "content/brokers/xtb.js"],
       "run_at": "document_idle"
     },
     {

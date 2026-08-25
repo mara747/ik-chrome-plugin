@@ -1,9 +1,9 @@
 # Import portfolia od brokera — návod pro členy
 
 Rozšíření do Chrome, které načte hodnotu a pozice z tvé **přihlášené** stránky
-brokera (eToro, Interactive Brokers, Trading 212, Portu) a naimportuje je do tvého portfolia
-na webu klubu. Nic se neukládá samo — na webu se otevře tabulka, kterou
-zkontroluješ a uložíš.
+brokera (eToro, Interactive Brokers, Trading 212, Portu, Fio e-Broker, Anycoin
+a XTB) a naimportuje je do tvého portfolia na webu klubu. Nic se neukládá samo
+— na webu se otevře tabulka, kterou zkontroluješ a uložíš.
 
 Rozšíření **nezná tvé heslo ani přístup do databáze**. Data jen předá otevřené
 stránce webu klubu, přihlášené pod tvým účtem.
@@ -31,6 +31,11 @@ stránce webu klubu, přihlášené pod tvým účtem.
      mít otevřenou aplikaci brokera.
    - **Portu** — otevři detail konkrétního portfolia (Souhrn → klikni na
      portfolio).
+   - **Fio e-Broker** — přihlas se do e-Brokeru; rozšíření načte Portfolio →
+     Vývoj samo z kterékoli přihlášené stránky.
+   - **Anycoin** — přihlas se a otevři přehled zůstatků.
+   - **XTB** — v XStation 5 vyber účet, který chceš importovat, počkej na jeho
+     úplné načtení a nech stránku XStation otevřenou.
 2. Klikni na ikonu rozšíření → **Načíst portfolio**.
 3. Zkontroluj souhrn (počet pozic, hodnota) a vyber **cílové portfolio na webu
    klubu** (seznam se načte sám; stačí být na webu přihlášený).
@@ -53,5 +58,12 @@ stránce webu klubu, přihlášené pod tvým účtem.
   Když import ohlásí chybu API, obnov stránku brokera (F5) a zkus jej znovu.
 - **Portu:** importuje se hodnota + fondy vybraného portfolia; hotovost je
   součástí celkové hodnoty, ne pozic.
+- **Fio e-Broker:** průměrná cena se načte jen tehdy, když období ve Vývoji
+  bezpečně pokrývá celou otevřenou pozici; jinak ji doplň v kontrolní tabulce.
+- **Anycoin:** nákupní ceny API neposkytuje, proto je případně doplň ručně.
+- **XTB:** importuje se vždy právě vybraný účet XStation. Po přepnutí účtu
+  počkej na načtení nových dat; při chybě obnov XStation (F5), znovu vyber účet
+  a zkus import opakovat. Rozšíření pouze pozoruje data, která už načetla
+  XStation — nevyžaduje heslo, API klíč ani export souboru.
 
 Něco nefunguje? Napiš Markovi a přilož, co rozšíření nebo web ukázaly.
