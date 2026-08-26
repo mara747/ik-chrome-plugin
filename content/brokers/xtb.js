@@ -19,6 +19,8 @@
   const CHANNEL = "ik-xtb-stream-bridge";
   const BRIDGE_TIMEOUT_MS = 8000;
   const BRIDGE_ERROR = "Spojení doplňku se streamem XTB se nepodařilo navázat. Obnov stránku (F5), počkej na načtení XStation a zkus import znovu.";
+  const INSTRUMENT_ERROR = "XTB vrátilo instrument v neznámém formátu nebo z neznámé burzy. Import jsem pro jistotu nezapsal; nahlas prosím tento případ k doplnění.";
+  const MAX_DIAGNOSTIC_VALUE_LENGTH = 80;
 
   function randomToken() {
     return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
@@ -26,6 +28,49 @@
 
   function bridgeFailure() {
     return new Error(BRIDGE_ERROR);
+  }
+
+  function diagnosticValue(value) {
+    const printable = typeof value === "string"
+      ? value.trim().replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ").replace(/\s+/g, " ")
+      : "";
+    if (!printable) return "neznámý";
+    const characters = Array.from(printable);
+    return characters.length > MAX_DIAGNOSTIC_VALUE_LENGTH
+      ? `${characters.slice(0, MAX_DIAGNOSTIC_VALUE_LENGTH).join("")}…`
+      : printable;
+  }
+
+  function verifyRequiredTickerOverrides(result) {
+    if (result?.ok !== true || !Array.isArray(result.payload?.positions)) return result;
+    let unresolved = null;
+    let changed = false;
+    const positions = result.payload.positions.map((position) => {
+      if (position?.requiresTickerOverride !== true) return position;
+      const outputTicker = IK.resolveBrokerTicker(
+        result.payload.broker,
+        position.ticker,
+        position.currency,
+      );
+      if (typeof outputTicker !== "string" || outputTicker === position.ticker) {
+        unresolved ||= position;
+        return position;
+      }
+      const { requiresTickerOverride: _internalMarker, ...cleanPosition } = position;
+      changed = true;
+      return cleanPosition;
+    });
+    if (unresolved) {
+      const ticker = diagnosticValue(unresolved.ticker);
+      const currency = diagnosticValue(unresolved.currency);
+      return {
+        ok: false,
+        needsCalibration: true,
+        error: `${INSTRUMENT_ERROR}\nDiagnostika: XTB-INSTRUMENT-OVERRIDE-MISSING — pro instrument „${ticker}“ v měně „${currency}“ chybí sdílené převodní pravidlo.`,
+      };
+    }
+    if (!changed) return result;
+    return { ...result, payload: { ...result.payload, positions } };
   }
 
   function requestFromMainWorld() {
@@ -60,7 +105,7 @@
     isPortfolioPage: () => location.hostname === "xstation5.xtb.com",
     async scrape() {
       try {
-        return await requestFromMainWorld();
+        return verifyRequiredTickerOverrides(await requestFromMainWorld());
       } catch {
         return { ok: false, needsCalibration: true, error: BRIDGE_ERROR };
       }

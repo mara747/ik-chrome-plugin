@@ -70,7 +70,8 @@ venue/symbol mapping, `IK.registerScraper` applies the exact shared
 rationale in the comment above it). Its key is broker ID → already-normalized
 ticker → native position currency (the currency guards against remapping an
 innocent same-named ticker on another venue); current aliases are XTB
-`DOC1/USD → DOC`, T212 `WEBN1.DE/EUR → WEBN.DE`, and Portu
+`DOC1/USD → DOC`, XTB `ISLN.UK/USD → ISLN.L`, T212
+`WEBN1.DE/EUR → WEBN.DE`, and Portu
 `SX5EEX.DE/EUR → EUEA.AS`. Do not put these non-derivable aliases in
 individual scrapers; every new entry needs a test. If an alias would collide
 with another final `(ticker, currency)` row, do not merge or reprice positions:
@@ -172,6 +173,12 @@ keep the original ticker and append the Czech collision audit note.
   symbols must match the calibrated catalog/venue map, and total equity must be
   present. Ambiguous free funds are omitted with a warning; mixed, incomplete,
   or unknown data fail closed with an actionable Czech error.
+  XStation's normal catalog and trade records do not expose native instrument
+  currency. Infer it from the verified venue map only. Ambiguous `.UK` is not a
+  general venue rule: an exact XTB symbol may receive a manually verified
+  currency in `xtb-stream.js`, after which `xtb.js` requires the strict shared
+  broker+ticker+currency override from `lib/normalize.js` before allowing the
+  payload through. Keep both stages covered by one integration regression.
 
 ## Validation
 

@@ -36,6 +36,7 @@ var IKXtbStreamMain = (() => {
   const CASH_WARNING = "XTB nevrátilo jednoznačnou hodnotu volných prostředků; web klubu ji dopočítá z celkové hodnoty a pozic.";
   const BRIDGE_CHANNEL = "ik-xtb-stream-bridge";
   const MAIN_READY_TIMEOUT_MS = 6000;
+  const MAX_DIAGNOSTIC_SYMBOL_LENGTH = 80;
   const INSTALL_MARKER = "__ikXtbStreamMainInstalled";
   const ERRORS = Object.freeze({
     incomplete: "XTB ještě neposkytlo úplný stav právě vybraného účtu. Obnov stránku (F5), počkej na načtení XStation a zkus import znovu.",
@@ -56,6 +57,14 @@ var IKXtbStreamMain = (() => {
     ".ST": ["SEK", ".ST"], ".CO": ["DKK", ".CO"], ".OL": ["NOK", ".OL"],
     ".SI": ["SGD", ".SI"], ".TA": ["ILS", ".TA"], ".MX": ["MXN", ".MX"],
     ".SA": ["BRL", ".SA"], ".WA": ["PLN", ".WA"],
+  });
+  // XStation's normal account-load records omit native instrument currency.
+  // Most currencies are safely implied by a calibrated venue suffix. Entries
+  // here are exact, manually verified exceptions where the suffix is
+  // ambiguous. They only enrich currency; lib/normalize.js still requires the
+  // strict broker + ticker + currency match before changing the Yahoo ticker.
+  const XTB_INSTRUMENT_CURRENCIES = Object.freeze({
+    "ISLN.UK": "USD",
   });
 
   function opaqueToken(value) {
@@ -324,13 +333,31 @@ var IKXtbStreamMain = (() => {
     };
   }
 
-  function calibrationError(errorCode) {
+  function calibrationError(errorCode, diagnostic = "") {
+    const baseError = ERRORS[errorCode] || ERRORS.incomplete;
     return {
       ok: false,
       needsCalibration: true,
       errorCode,
-      error: ERRORS[errorCode] || ERRORS.incomplete,
+      error: diagnostic ? `${baseError}\nDiagnostika: ${diagnostic}` : baseError,
     };
+  }
+
+  function printableDiagnosticSymbol(value) {
+    const source = typeof value === "string" ? value : "";
+    const printable = source.trim()
+      .replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ")
+      .replace(/\s+/g, " ");
+    if (!printable) return null;
+    const characters = Array.from(printable);
+    const clipped = characters.length > MAX_DIAGNOSTIC_SYMBOL_LENGTH
+      ? `${characters.slice(0, MAX_DIAGNOSTIC_SYMBOL_LENGTH).join("")}…`
+      : printable;
+    return `„${clipped}“`;
+  }
+
+  function instrumentError(diagnosticCode, detail) {
+    return calibrationError("instrument", `${diagnosticCode} — ${detail}`);
   }
 
   function isEligiblePositionRecord(entry) {
@@ -383,6 +410,15 @@ var IKXtbStreamMain = (() => {
   function toYahooTicker(rawSymbol) {
     const source = String(rawSymbol || "").trim().toUpperCase().replace(/^\$/, "");
     if (!SYMBOL_RE.test(source)) return { ticker: null, currency: null, knownVenue: false };
+    const exactCurrency = XTB_INSTRUMENT_CURRENCIES[source];
+    if (exactCurrency) {
+      return {
+        ticker: source,
+        currency: exactCurrency,
+        knownVenue: true,
+        requiresTickerOverride: true,
+      };
+    }
     const dot = source.lastIndexOf(".");
     if (dot < 0) return { ticker: source, currency: null, knownVenue: false };
     const suffix = source.slice(dot);
@@ -448,20 +484,58 @@ var IKXtbStreamMain = (() => {
     for (const entry of eligible) {
       const trade = entry.record;
       const tradeSymbol = typeof trade.symbol === "string" ? trade.symbol.trim().toUpperCase() : "";
+      const printableTradeSymbol = printableDiagnosticSymbol(trade.symbol);
+      if (!tradeSymbol || !SYMBOL_RE.test(tradeSymbol)) {
+        const detail = printableTradeSymbol
+          ? `XTB vrátilo neplatný symbol ${printableTradeSymbol}.`
+          : "XTB vrátilo chybějící nebo prázdný symbol instrumentu.";
+        return instrumentError("XTB-INSTRUMENT-INVALID-SYMBOL", detail);
+      }
       const catalogRecords = catalog.get(opaqueToken(trade.idQuote));
+      if (!Array.isArray(catalogRecords) || catalogRecords.length === 0) {
+        return instrumentError(
+          "XTB-INSTRUMENT-CATALOG-MISSING",
+          `instrument ${printableTradeSymbol} nemá záznam pro svou kotaci v katalogu XTB.`,
+        );
+      }
       const catalogRecord = Array.isArray(catalogRecords)
         ? catalogRecords.find((record) => (
           typeof record?.name === "string" && record.name.trim().toUpperCase() === tradeSymbol
         ))
         : null;
       const symbol = typeof catalogRecord?.name === "string" ? catalogRecord.name.trim().toUpperCase() : "";
-      if (!symbol || tradeSymbol !== symbol) return calibrationError("instrument");
+      if (!symbol || tradeSymbol !== symbol) {
+        const catalogSymbols = catalogRecords
+          .map((record) => printableDiagnosticSymbol(record?.name))
+          .filter(Boolean)
+          .slice(0, 3);
+        const catalogDetail = catalogSymbols.length
+          ? `katalogu XTB ${catalogSymbols.join(", ")}`
+          : "katalogovému záznamu bez čitelného symbolu";
+        return instrumentError(
+          "XTB-INSTRUMENT-CATALOG-MISMATCH",
+          `symbol pozice ${printableTradeSymbol} neodpovídá ${catalogDetail}.`,
+        );
+      }
       if (!Number.isFinite(trade.volume) || trade.volume <= 0
         || !Number.isFinite(trade.openPrice) || trade.openPrice < 0) {
         return calibrationError("positions");
       }
       const mapped = toYahooTicker(symbol);
-      if (!mapped.knownVenue || !mapped.ticker || !mapped.currency) return calibrationError("instrument");
+      if (!mapped.knownVenue || !mapped.ticker || !mapped.currency) {
+        const dot = symbol.lastIndexOf(".");
+        if (dot < 0) {
+          return instrumentError(
+            "XTB-INSTRUMENT-MISSING-VENUE",
+            `instrument ${printableTradeSymbol} neobsahuje burzovní příponu.`,
+          );
+        }
+        const suffix = symbol.slice(dot);
+        return instrumentError(
+          "XTB-INSTRUMENT-UNKNOWN-VENUE",
+          `instrument ${printableTradeSymbol} používá nepodporovanou burzu ${printableDiagnosticSymbol(suffix)}.`,
+        );
+      }
       let group = groups.get(symbol);
       if (!group) {
         const displayName = typeof catalogRecord.displayName === "string"
@@ -479,13 +553,17 @@ var IKXtbStreamMain = (() => {
       group.weightedCost += trade.volume * trade.openPrice;
     }
 
-    const positions = [...groups.values()].map((group) => ({
-      ticker: group.mapped.ticker,
-      shares: group.shares,
-      avgCost: group.weightedCost / group.shares,
-      currency: group.mapped.currency,
-      note: group.note,
-    })).sort((left, right) => left.ticker.localeCompare(right.ticker));
+    const positions = [...groups.values()].map((group) => {
+      const position = {
+        ticker: group.mapped.ticker,
+        shares: group.shares,
+        avgCost: group.weightedCost / group.shares,
+        currency: group.mapped.currency,
+        note: group.note,
+      };
+      if (group.mapped.requiresTickerOverride) position.requiresTickerOverride = true;
+      return position;
+    }).sort((left, right) => left.ticker.localeCompare(right.ticker));
     if (!positions.length || positions.some((position) => !Number.isFinite(position.avgCost))) {
       return calibrationError("positions");
     }
