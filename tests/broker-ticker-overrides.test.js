@@ -35,6 +35,7 @@ test("resolves exact broker ticker and native-currency overrides", () => {
   const { IK } = loadNormalize();
 
   assert.equal(IK.resolveBrokerTicker("xtb", "DOC1", "USD"), "DOC");
+  assert.equal(IK.resolveBrokerTicker("xtb", "ISLN.UK", "USD"), "ISLN.L");
   assert.equal(IK.resolveBrokerTicker("t212", "WEBN1.DE", "EUR"), "WEBN.DE");
   assert.equal(IK.resolveBrokerTicker("portu", "SX5EEX.DE", "EUR"), "EUEA.AS");
 });
@@ -44,6 +45,7 @@ test("normalizes lookup keys but requires all three dimensions", () => {
 
   assert.equal(IK.resolveBrokerTicker(" XTB ", " doc1 ", " usd "), "DOC");
   assert.equal(IK.resolveBrokerTicker("xtb", "DOC1", "EUR"), "DOC1");
+  assert.equal(IK.resolveBrokerTicker("xtb", "ISLN.UK", "GBP"), "ISLN.UK");
   assert.equal(IK.resolveBrokerTicker("portu", "DOC1", "USD"), "DOC1");
   assert.equal(IK.resolveBrokerTicker("portu", "SX5EEX", "EUR"), "SX5EEX");
   assert.equal(IK.resolveBrokerTicker("xtb", "UNKNOWN", "USD"), "UNKNOWN");

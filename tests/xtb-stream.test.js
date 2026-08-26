@@ -608,6 +608,57 @@ test("rejects missing catalog quotes, invalid numbers, and unknown venues", () =
   assert.match(unknownVenue.error, /burzy/i);
 });
 
+test("reports the XTB symbol when its quote is missing from the catalog", () => {
+  const result = stream.buildPayloadFromStreamSnapshot(coherentSnapshot({
+    catalogFrame: catalogFrame([{ quoteId: QUOTE_SECRET + 9, name: "OTHER.US" }]),
+  }));
+
+  assert.equal(result.ok, false);
+  assert.equal(result.errorCode, "instrument");
+  assert.match(result.error, /XTB-INSTRUMENT-CATALOG-MISSING/);
+  assert.match(result.error, /instrument „ACME\.US“/);
+});
+
+test("reports both XTB symbols when a position disagrees with its catalog quote", () => {
+  const result = stream.buildPayloadFromStreamSnapshot(coherentSnapshot({
+    catalogFrame: catalogFrame([{ quoteId: QUOTE_SECRET, name: "OTHER.US" }]),
+  }));
+
+  assert.equal(result.ok, false);
+  assert.equal(result.errorCode, "instrument");
+  assert.match(result.error, /XTB-INSTRUMENT-CATALOG-MISMATCH/);
+  assert.match(result.error, /symbol pozice „ACME\.US“/);
+  assert.match(result.error, /katalogu XTB „OTHER\.US“/);
+});
+
+test("reports a safely printable invalid XTB symbol", () => {
+  const result = stream.buildPayloadFromStreamSnapshot(coherentSnapshot({
+    catalogFrame: catalogFrame([{ quoteId: QUOTE_SECRET, name: "ODD/US\nCONTROL" }]),
+    trades: [tradeRecord({ symbol: "ODD/US\nCONTROL" })],
+    profits: [{ idPosition: POSITION_SECRET }],
+  }));
+
+  assert.equal(result.ok, false);
+  assert.equal(result.errorCode, "instrument");
+  assert.match(result.error, /XTB-INSTRUMENT-INVALID-SYMBOL/);
+  assert.match(result.error, /neplatný symbol „ODD\/US CONTROL“/);
+  assert.doesNotMatch(result.error.split("Diagnostika:")[1], /[\r\n]/);
+});
+
+test("reports the exact unsupported XTB venue", () => {
+  const result = stream.buildPayloadFromStreamSnapshot(coherentSnapshot({
+    catalogFrame: catalogFrame([{ quoteId: QUOTE_SECRET, name: "ACME.XX" }]),
+    trades: [tradeRecord({ symbol: "ACME.XX" })],
+    profits: [{ idPosition: POSITION_SECRET }],
+  }));
+
+  assert.equal(result.ok, false);
+  assert.equal(result.errorCode, "instrument");
+  assert.match(result.error, /XTB-INSTRUMENT-UNKNOWN-VENUE/);
+  assert.match(result.error, /instrument „ACME\.XX“/);
+  assert.match(result.error, /burzu „\.XX“/);
+});
+
 test("rejects a suffixless symbol without a calibrated XTB venue", () => {
   const result = stream.buildPayloadFromStreamSnapshot(coherentSnapshot({
     catalogFrame: catalogFrame([{ quoteId: QUOTE_SECRET, name: "ACME" }]),
@@ -617,6 +668,8 @@ test("rejects a suffixless symbol without a calibrated XTB venue", () => {
 
   assert.equal(result.ok, false);
   assert.equal(result.errorCode, "instrument");
+  assert.match(result.error, /XTB-INSTRUMENT-MISSING-VENUE/);
+  assert.match(result.error, /instrument „ACME“/);
 });
 
 test("maps calibrated XTB venues without using account currency", () => {
@@ -645,6 +698,43 @@ test("maps calibrated XTB venues without using account currency", () => {
     currency: "EUR",
     knownVenue: true,
   });
+});
+
+test("enriches only the exact calibrated XTB London instrument with native currency", () => {
+  assert.deepEqual(stream.toYahooTicker("ISLN.UK"), {
+    ticker: "ISLN.UK",
+    currency: "USD",
+    knownVenue: true,
+    requiresTickerOverride: true,
+  });
+  assert.deepEqual(stream.toYahooTicker("UNKNOWN.UK"), {
+    ticker: "UNKNOWN.UK",
+    currency: null,
+    knownVenue: false,
+  });
+});
+
+test("passes the exact XTB London instrument to strict shared ticker normalization", () => {
+  const result = stream.buildPayloadFromStreamSnapshot(coherentSnapshot({
+    accountFrame: accountFrame(ACCOUNT_SECRET, ENDPOINT_SECRET, "EUR"),
+    catalogFrame: catalogFrame([{
+      quoteId: QUOTE_SECRET,
+      name: "ISLN.UK",
+      displayName: "Physical Silver",
+    }]),
+    trades: [tradeRecord({ symbol: "ISLN.UK", volume: 2, openPrice: 35 })],
+    profits: [{ idPosition: POSITION_SECRET, accountId: 111 }],
+  }));
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.payload.positions, [{
+    ticker: "ISLN.UK",
+    shares: 2,
+    avgCost: 35,
+    currency: "USD",
+    note: "ISLN.UK (Physical Silver)",
+    requiresTickerOverride: true,
+  }]);
 });
 
 test("rejects incomplete, empty, and missing-total snapshots", () => {

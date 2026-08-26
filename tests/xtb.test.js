@@ -7,7 +7,17 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const SOURCE_PATH = path.join(__dirname, "..", "content", "brokers", "xtb.js");
+const NORMALIZE_SOURCE_PATH = path.join(__dirname, "..", "lib", "normalize.js");
 const ORIGIN = "https://xstation5.xtb.com";
+
+function loadSharedNormalize() {
+  const sandbox = {
+    chrome: { runtime: { onMessage: { addListener() {} } } },
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(fs.readFileSync(NORMALIZE_SOURCE_PATH, "utf8"), sandbox);
+  return vm.runInContext("IK", sandbox);
+}
 
 function validNormalizedResult() {
   return {
@@ -35,7 +45,7 @@ function responseFor(request, result = validNormalizedResult()) {
   };
 }
 
-function loadIsolatedAdapter() {
+function loadIsolatedAdapter(resolveBrokerTicker = (_broker, ticker) => ticker) {
   const listeners = new Map();
   const scheduled = new Map();
   let nextTimerId = 1;
@@ -63,7 +73,10 @@ function loadIsolatedAdapter() {
     },
   };
   const sandbox = {
-    IK: { registerScraper(definition) { registered = definition; } },
+    IK: {
+      registerScraper(definition) { registered = definition; },
+      resolveBrokerTicker,
+    },
     window,
     location: { origin: ORIGIN, hostname: "xstation5.xtb.com" },
     crypto: { randomUUID() { return `token-${nextToken++}`; } },
@@ -148,6 +161,58 @@ test("uses independent request and nonce values for concurrent scrapes", () => {
   assert.notEqual(first.nonce, second.nonce);
 });
 
+test("accepts a MAIN-world instrument only when the strict shared override exists", async () => {
+  const sharedNormalize = loadSharedNormalize();
+  const runtime = loadIsolatedAdapter(sharedNormalize.resolveBrokerTicker);
+  const pending = runtime.registered.scrape();
+  const request = runtime.window.posted.at(-1).message;
+  const result = validNormalizedResult();
+  result.payload.positions = [{
+    ticker: "ISLN.UK",
+    shares: 2,
+    avgCost: 35,
+    currency: "USD",
+    note: "ISLN.UK (Physical Silver)",
+    requiresTickerOverride: true,
+  }];
+
+  runtime.window.emitMessage({ source: runtime.window, origin: ORIGIN, data: responseFor(request, result) });
+  const accepted = await pending;
+
+  assert.equal(accepted.ok, true);
+  assert.equal(accepted.payload.positions[0].ticker, "ISLN.UK");
+  assert.equal(accepted.payload.positions[0].currency, "USD");
+  assert.equal("requiresTickerOverride" in accepted.payload.positions[0], false);
+  const normalized = sharedNormalize.applyBrokerTickerOverrides(accepted.payload);
+  assert.equal(normalized.positions[0].ticker, "ISLN.L");
+  assert.equal(normalized.positions[0].currency, "USD");
+  assert.equal(normalized.positions[0].note, "ISLN.UK (Physical Silver)");
+});
+
+test("rejects an exact XTB currency enrichment when the shared ticker override is missing", async () => {
+  const runtime = loadIsolatedAdapter();
+  const pending = runtime.registered.scrape();
+  const request = runtime.window.posted.at(-1).message;
+  const result = validNormalizedResult();
+  result.payload.positions = [{
+    ticker: "ISLN.UK",
+    shares: 2,
+    avgCost: 35,
+    currency: "USD",
+    note: "ISLN.UK (Physical Silver)",
+    requiresTickerOverride: true,
+  }];
+
+  runtime.window.emitMessage({ source: runtime.window, origin: ORIGIN, data: responseFor(request, result) });
+  const rejected = await pending;
+
+  assert.equal(rejected.ok, false);
+  assert.equal(rejected.needsCalibration, true);
+  assert.match(rejected.error, /XTB-INSTRUMENT-OVERRIDE-MISSING/);
+  assert.match(rejected.error, /ISLN\.UK/);
+  assert.match(rejected.error, /USD/);
+});
+
 test("registers the exact production XTB execution-world entries", () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "manifest.json"), "utf8"));
   const xtbEntries = manifest.content_scripts.filter((entry) =>
@@ -167,5 +232,5 @@ test("registers the exact production XTB execution-world entries", () => {
     },
   ]);
   assert.equal(manifest.host_permissions, undefined);
-  assert.equal(manifest.version, "0.3.0");
+  assert.equal(manifest.version, "0.3.1");
 });
