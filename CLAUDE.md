@@ -55,8 +55,10 @@ monorepo) is the broker-reported cash inside totalValue: IBKR
 (fallback total − Σ MarketPriceTotalRef), Anycoin fiat wallets in CZK (0 =
 really no fiat), Fio cash rows' Majetek, eToro total − Σ equity cells, and XTB
 free funds plus a corroborated `stockLock` reservation for recognized pending
-BUY orders. Pending SELL orders do not affect cash and are ignored; a failed
-balance identity produces null.
+BUY orders. Trading 212 uses `investPot + spendingPot + pieCash`, plus
+`blockedForStocks` only for verified, fully unfilled pending BUY orders.
+Pending SELL orders do not affect cash and are ignored; an ambiguous pending
+order or failed balance identity produces null.
 null/absent = broker doesn't say → the web keeps deriving it from
 `broker_value` − positions.
 
@@ -154,7 +156,17 @@ keep the original ticker and append the Czech collision audit note.
   for an open code, fetch `GET /instrumentarium/v2/instruments/0` and retain
   only the missing open-position instruments from that catalog. Position data
   must use `quantity`, **`averagePrice`** (never `averagePriceConverted`), and
-  metadata `currency`; invalid or incomplete responses fail closed. Never inspect,
+  metadata `currency`; invalid or incomplete responses fail closed. Cash is
+  `investPot + spendingPot + pieCash`. A zero/absent `blockedForStocks` with no
+  ordinary or Pie orders is a normal state. Add a positive `blockedForStocks`
+  only when ordinary pending orders are all `NEW`, entirely unfilled, contain
+  at least one BUY, and have no unverified Pie `valueOrders`; pending SELL does
+  not change cash or positions. A malformed, non-`NEW`, or partially filled
+  ordinary order, any Pie `valueOrder`, an invalid/negative reservation, or a
+  positive reservation without a verified BUY produces `cashValue: null` with
+  the Czech warning. Instrument failures include a short, sanitized public
+  ticker/code, currency, or venue diagnostic, never portfolio values or
+  account/order identifiers. Never inspect,
   persist, log, or commit cookies, response bodies, account IDs, or member
   portfolio values. There is no DOM or CSV fallback.
 - XTB is STREAM-ONLY and calibrated live (2026-08) against XStation 5. It must

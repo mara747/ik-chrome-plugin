@@ -4,7 +4,12 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
-const { buildPayload, ENDPOINTS, API_ROOT, fetchT212Data } = require("../content/brokers/t212-api.js");
+const {
+  buildPayload,
+  ENDPOINTS,
+  API_ROOT,
+  fetchT212Data,
+} = require("../content/brokers/t212-api.js");
 
 const account = { id: 7, tradingType: "EQUITY", type: "LIVE", currencyCode: "CZK" };
 const summary = {
@@ -84,6 +89,81 @@ test("rejects a position with no original average price", () => {
   assert.match(result.error, /průměrnou nákupní cenu/i);
 });
 
+test("identifies the T212 instrument when its original average price is missing", () => {
+  const result = buildPayload({
+    account,
+    summary: {
+      ...summary,
+      open: [{ ...summary.open[0], code: "ZETA_US_EQ", averagePrice: null }],
+    },
+    instruments,
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.error, /T212-POSITION-MISSING-AVERAGE-PRICE/);
+  assert.match(result.error, /ZETA_US_EQ/);
+});
+
+test("identifies the T212 instrument when its metadata is missing", () => {
+  const result = buildPayload({
+    account,
+    summary: { ...summary, open: [{ ...summary.open[0], code: "ZETA_US_EQ" }] },
+    instruments: [],
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.error, /T212-INSTRUMENT-METADATA-MISSING/);
+  assert.match(result.error, /ZETA_US_EQ/);
+});
+
+test("does not expose an unrecognized T212 position code in diagnostics", () => {
+  const unsafeCode = "session token 123456789";
+  const result = buildPayload({
+    account,
+    summary: {
+      ...summary,
+      open: [{ ...summary.open[0], code: unsafeCode, averagePrice: null }],
+    },
+    instruments,
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.error, /T212-POSITION-MISSING-AVERAGE-PRICE/);
+  assert.match(result.error, /neznámý/);
+  assert.equal(result.error.includes(unsafeCode), false);
+});
+
+test("does not expose an overlong T212 position code in diagnostics", () => {
+  const unsafeCode = `${"A".repeat(75)}_US_EQ`;
+  const result = buildPayload({
+    account,
+    summary: {
+      ...summary,
+      open: [{ ...summary.open[0], code: unsafeCode, averagePrice: null }],
+    },
+    instruments,
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.error, /T212-POSITION-MISSING-AVERAGE-PRICE/);
+  assert.match(result.error, /neznámý/);
+  assert.equal(result.error.includes(unsafeCode), false);
+});
+
+test("does not expose an invalid instrument currency in diagnostics", () => {
+  const unsafeCurrency = "session token 123456789";
+  const result = buildPayload({
+    account,
+    summary,
+    instruments: [{ ...instruments[0], currency: unsafeCurrency }],
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.error, /T212-INSTRUMENT-INVALID-CURRENCY/);
+  assert.match(result.error, /neznám/);
+  assert.equal(result.error.includes(unsafeCurrency), false);
+});
+
 test("separates total account value from invest and spending cash", () => {
   const result = buildPayload({
     account,
@@ -111,6 +191,239 @@ test("includes uninvested Pie Cash in broker-reported cash", () => {
 
   assert.equal(result.ok, true);
   assert.equal(result.payload.cashValue, 150);
+});
+
+test("adds the verified pending BUY reservation to cash", () => {
+  const result = buildPayload({
+    account,
+    summary: {
+      ...summary,
+      cash: {
+        total: 1000,
+        investPot: 100,
+        spendingPot: 20,
+        pieCash: 30,
+        blockedForStocks: 40,
+      },
+      orders: [{ type: "LIMIT", status: "NEW", quantity: 0.25, filledQuantity: 0 }],
+      valueOrders: [],
+    },
+    instruments,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.payload.cashValue, 190);
+});
+
+test("accepts decimal text fields for a verified pending BUY", () => {
+  const result = buildPayload({
+    account,
+    summary: {
+      ...summary,
+      cash: {
+        total: 1000,
+        investPot: 100,
+        spendingPot: 20,
+        pieCash: 30,
+        blockedForStocks: 40,
+      },
+      orders: [{ type: "LIMIT", status: "NEW", quantity: "0.25", filledQuantity: "0" }],
+      valueOrders: [],
+    },
+    instruments,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.payload.cashValue, 190);
+});
+
+test("does not count a verified pending SELL as position cash", () => {
+  const result = buildPayload({
+    account,
+    summary: {
+      ...summary,
+      cash: {
+        total: 1000,
+        investPot: 100,
+        spendingPot: 20,
+        pieCash: 30,
+        blockedForStocks: 40,
+      },
+      orders: [
+        { type: "LIMIT", status: "NEW", quantity: 0.25, filledQuantity: 0 },
+        { type: "LIMIT", status: "NEW", quantity: -1, filledQuantity: 0 },
+      ],
+      valueOrders: [],
+    },
+    instruments,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.payload.cashValue, 190);
+  assert.equal(result.payload.positions[0].shares, 4.5);
+});
+
+test("omits cash when a pending order is partially filled or not NEW", () => {
+  for (const order of [
+    { type: "LIMIT", status: "NEW", quantity: 0.25, filledQuantity: 0.1 },
+    { type: "LIMIT", status: "CANCELLED", quantity: 0.25, filledQuantity: 0 },
+  ]) {
+    const result = buildPayload({
+      account,
+      summary: {
+        ...summary,
+        cash: {
+          total: 1000,
+          investPot: 100,
+          spendingPot: 20,
+          pieCash: 30,
+          blockedForStocks: 40,
+        },
+        orders: [order],
+        valueOrders: [],
+      },
+      instruments,
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.payload.cashValue, null);
+    assert.ok(result.payload.warnings.includes(
+      "Trading 212 vrátilo nejednoznačný stav čekajících pokynů; hotovost nebyla načtena.",
+    ));
+  }
+});
+
+test("omits cash when a zero reservation accompanies an unsafe ordinary order", () => {
+  const result = buildPayload({
+    account,
+    summary: {
+      ...summary,
+      cash: {
+        total: 1000,
+        investPot: 100,
+        spendingPot: 20,
+        pieCash: 30,
+        blockedForStocks: 0,
+      },
+      orders: [{ type: "LIMIT", status: "CANCELLED", quantity: 0.25, filledQuantity: 0 }],
+      valueOrders: [],
+    },
+    instruments,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.payload.cashValue, null);
+  assert.ok(result.payload.warnings.includes(
+    "Trading 212 vrátilo nejednoznačný stav čekajících pokynů; hotovost nebyla načtena.",
+  ));
+});
+
+test("omits cash when a zero reservation accompanies Pie value orders", () => {
+  const result = buildPayload({
+    account,
+    summary: {
+      ...summary,
+      cash: {
+        total: 1000,
+        investPot: 100,
+        spendingPot: 20,
+        pieCash: 30,
+        blockedForStocks: 0,
+      },
+      orders: [],
+      valueOrders: [{ type: "LIMIT", status: "NEW", quantity: 0.25, filledQuantity: 0 }],
+    },
+    instruments,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.payload.cashValue, null);
+  assert.ok(result.payload.warnings.includes(
+    "Trading 212 vrátilo nejednoznačný stav čekajících pokynů; hotovost nebyla načtena.",
+  ));
+});
+
+test("omits cash when a pending BUY has a nonnumeric filled quantity", () => {
+  for (const filledQuantity of [null, "", false]) {
+    const result = buildPayload({
+      account,
+      summary: {
+        ...summary,
+        cash: {
+          total: 1000,
+          investPot: 100,
+          spendingPot: 20,
+          pieCash: 30,
+          blockedForStocks: 40,
+        },
+        orders: [{ type: "LIMIT", status: "NEW", quantity: 0.25, filledQuantity }],
+        valueOrders: [],
+      },
+      instruments,
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.payload.cashValue, null);
+    assert.ok(result.payload.warnings.includes(
+      "Trading 212 vrátilo nejednoznačný stav čekajících pokynů; hotovost nebyla načtena.",
+    ));
+  }
+});
+
+test("omits cash when pending-order numeric fields are non-scalar or non-decimal", () => {
+  for (const order of [
+    { type: "LIMIT", status: "NEW", quantity: [0.25], filledQuantity: 0 },
+    { type: "LIMIT", status: "NEW", quantity: 0.25, filledQuantity: [] },
+    { type: "LIMIT", status: "NEW", quantity: "0x1", filledQuantity: "0x0" },
+  ]) {
+    const result = buildPayload({
+      account,
+      summary: {
+        ...summary,
+        cash: {
+          total: 1000,
+          investPot: 100,
+          spendingPot: 20,
+          pieCash: 30,
+          blockedForStocks: 40,
+        },
+        orders: [order],
+        valueOrders: [],
+      },
+      instruments,
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.payload.cashValue, null);
+    assert.ok(result.payload.warnings.includes(
+      "Trading 212 vrátilo nejednoznačný stav čekajících pokynů; hotovost nebyla načtena.",
+    ));
+  }
+});
+
+test("omits cash when T212 returns unverified Pie value orders", () => {
+  const result = buildPayload({
+    account,
+    summary: {
+      ...summary,
+      cash: {
+        total: 1000,
+        investPot: 100,
+        spendingPot: 20,
+        pieCash: 30,
+        blockedForStocks: 40,
+      },
+      orders: [{ type: "LIMIT", status: "NEW", quantity: 0.25, filledQuantity: 0 }],
+      valueOrders: [{ type: "LIMIT", status: "NEW", quantity: 0.25, filledQuantity: 0 }],
+    },
+    instruments,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.payload.cashValue, null);
+  assert.ok(result.payload.warnings.includes(
+    "Trading 212 vrátilo nejednoznačný stav čekajících pokynů; hotovost nebyla načtena.",
+  ));
 });
 
 test("does not report partial cash when the Pie Cash component is missing", () => {
@@ -156,6 +469,19 @@ test("rejects a ticker from an unknown exchange venue", () => {
   assert.equal(result.ok, false);
   assert.equal(result.needsCalibration, true);
   assert.match(result.error, /neznámé burzy/i);
+});
+
+test("identifies the T212 instrument and venue when the exchange is unsupported", () => {
+  const result = buildPayload({
+    account,
+    summary: { ...summary, open: [{ ...summary.open[0], code: "ZETA_XX_EQ" }] },
+    instruments: [{ ...instruments[0], ticker: "ZETA_XX_EQ" }],
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.error, /T212-INSTRUMENT-UNKNOWN-VENUE/);
+  assert.match(result.error, /ZETA_XX_EQ/);
+  assert.match(result.error, /XX/);
 });
 
 test("maps verified T212 exchange shorthand codes to Yahoo suffixes", () => {

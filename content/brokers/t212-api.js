@@ -44,13 +44,45 @@ var IKT212Api = (() => {
 
   const isFiniteNumber = (value) => Number.isFinite(Number(value));
   const asNumber = (value) => (isFiniteNumber(value) ? Number(value) : null);
+  const ORDER_NUMBER_TEXT_RE = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+  const asOrderNumber = (value) => {
+    if (typeof value === "number") return Number.isFinite(value) ? value : null;
+    if (typeof value !== "string") return null;
+    const numericText = value.trim();
+    if (!ORDER_NUMBER_TEXT_RE.test(numericText)) return null;
+    const parsed = Number(numericText);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
   const asCurrency = (value) => {
     const currency = String(value || "").trim().toUpperCase();
     return /^[A-Z]{3}$/.test(currency) ? currency : null;
   };
+  const PENDING_ORDER_CASH_WARNING = "Trading 212 vrátilo nejednoznačný stav čekajících pokynů; hotovost nebyla načtena.";
+  const MAX_DIAGNOSTIC_TICKER_LENGTH = 80;
+  const T212_TICKER_DIAGNOSTIC_RE = /^(?:[A-Za-z0-9.-]+_[A-Z]{2}_EQ|[A-Za-z0-9.-]+[adlp]_EQ)$/;
 
   function calibrationError(error) {
     return { ok: false, needsCalibration: true, error };
+  }
+
+  function diagnosticTicker(value) {
+    const ticker = typeof value === "string" ? value.trim() : "";
+    return ticker.length <= MAX_DIAGNOSTIC_TICKER_LENGTH && T212_TICKER_DIAGNOSTIC_RE.test(ticker)
+      ? ticker
+      : "neznámý";
+  }
+
+  function diagnosticCurrency(value) {
+    return asCurrency(value) || "neznámá";
+  }
+
+  function diagnosticVenue(value) {
+    const venue = typeof value === "string" ? value.trim().toUpperCase() : "";
+    return /^[A-Z]{2}$/.test(venue) ? venue : "neznámá";
+  }
+
+  function instrumentError(code, detail) {
+    return calibrationError(`Trading 212 vrátilo instrument v neověřitelném formátu. Import jsem pro jistotu nezapsal; nahlas prosím tento případ k doplnění.\nDiagnostika: ${code} — ${detail}`);
   }
 
   function toYahooSymbol(code) {
@@ -88,7 +120,33 @@ var IKT212Api = (() => {
     return asNumber(summary?.accountsByType?.[tradingType]?.cash?.total);
   }
 
-  function readCashValue(cash) {
+  function readPendingOrderReservation(cash, orders, valueOrders) {
+    if (orders !== undefined && !Array.isArray(orders)) return { warning: PENDING_ORDER_CASH_WARNING };
+    if (valueOrders !== undefined && !Array.isArray(valueOrders)) return { warning: PENDING_ORDER_CASH_WARNING };
+    if (Array.isArray(valueOrders) && valueOrders.length > 0) return { warning: PENDING_ORDER_CASH_WARNING };
+
+    let hasPendingBuy = false;
+    for (const order of orders || []) {
+      const quantity = asOrderNumber(order?.quantity);
+      const filledQuantity = asOrderNumber(order?.filledQuantity);
+      if (String(order?.status || "").toUpperCase() !== "NEW"
+          || quantity == null || quantity === 0 || filledQuantity == null || filledQuantity !== 0) {
+        return { warning: PENDING_ORDER_CASH_WARNING };
+      }
+      if (quantity > 0) hasPendingBuy = true;
+    }
+
+    if (cash?.blockedForStocks === undefined) return { reservation: 0 };
+    const reservation = asNumber(cash.blockedForStocks);
+    if (reservation == null || reservation < 0) return { warning: PENDING_ORDER_CASH_WARNING };
+    if (reservation === 0) return { reservation: 0 };
+    if (!Array.isArray(orders) || !Array.isArray(valueOrders) || orders.length === 0 || !hasPendingBuy) {
+      return { warning: PENDING_ORDER_CASH_WARNING };
+    }
+    return { reservation };
+  }
+
+  function readCashValue(cash, orders, valueOrders) {
     const investPot = asNumber(cash?.investPot);
     const spendingPot = asNumber(cash?.spendingPot);
     const pieCash = asNumber(cash?.pieCash);
@@ -96,15 +154,23 @@ var IKT212Api = (() => {
       || cash?.spendingPot !== undefined
       || cash?.pieCash !== undefined;
     if (hasCurrentCashBreakdown) {
-      if (investPot == null || spendingPot == null || pieCash == null) return null;
-      return investPot + spendingPot + pieCash;
+      if (investPot == null || spendingPot == null || pieCash == null) return { value: null };
+      const pending = readPendingOrderReservation(cash, orders, valueOrders);
+      return pending.warning
+        ? { value: null, warning: pending.warning }
+        : { value: investPot + spendingPot + pieCash + pending.reservation };
     }
     const candidates = [
       cash?.free,
       cash?.free?.total,
       cash?.free?.result,
     ];
-    return candidates.map(asNumber).find((value) => value != null) ?? null;
+    const free = candidates.map(asNumber).find((value) => value != null);
+    if (free == null) return { value: null };
+    const pending = readPendingOrderReservation(cash, orders, valueOrders);
+    return pending.warning
+      ? { value: null, warning: pending.warning }
+      : { value: free + pending.reservation };
   }
 
   function buildPayload({ account, summary, instruments, warnings: importWarnings = [], now = new Date().toISOString() }) {
@@ -122,9 +188,13 @@ var IKT212Api = (() => {
       return calibrationError("Trading 212 nevrátilo celkovou hodnotu účtu.");
     }
     const warnings = Array.isArray(importWarnings) ? [...importWarnings] : [];
-    const cashValue = readCashValue(summary?.cash);
+    const cashResult = readCashValue(summary?.cash, summary?.orders, summary?.valueOrders);
+    const cashValue = cashResult.value;
+    if (cashResult.warning) warnings.push(cashResult.warning);
     if (cashValue == null) {
-      warnings.push("Trading 212 nevrátilo hotovost; web klubu ji dopočítá z celkové hodnoty a pozic.");
+      if (!cashResult.warning) {
+        warnings.push("Trading 212 nevrátilo hotovost; web klubu ji dopočítá z celkové hodnoty a pozic.");
+      }
     }
 
     const metadataByTicker = new Map();
@@ -138,29 +208,47 @@ var IKT212Api = (() => {
       const code = String(position?.code || "").trim();
       const shares = asNumber(position?.quantity);
       if (!code || shares == null) {
-        return calibrationError("Trading 212 nevrátilo kód nebo počet kusů u některé pozice.");
+        const detail = code
+          ? `instrument „${diagnosticTicker(code)}“ nemá platný počet kusů.`
+          : "pozice nemá čitelný kód instrumentu.";
+        return instrumentError("T212-POSITION-INVALID", detail);
       }
       if (shares === 0) continue;
 
       // This deliberately uses averagePrice, not averagePriceConverted.
       const avgCost = asNumber(position?.averagePrice);
       if (avgCost == null || avgCost <= 0) {
-        return calibrationError("Trading 212 nevrátilo průměrnou nákupní cenu u některé pozice.");
+        return instrumentError(
+          "T212-POSITION-MISSING-AVERAGE-PRICE",
+          `instrument „${diagnosticTicker(code)}“ nemá platnou průměrnou nákupní cenu.`,
+        );
       }
       const instrument = metadataByTicker.get(code.toUpperCase());
       if (!instrument) {
-        return calibrationError("Trading 212 nevrátilo metadata instrumentu u některé pozice.");
+        return instrumentError(
+          "T212-INSTRUMENT-METADATA-MISSING",
+          `pro instrument „${diagnosticTicker(code)}“ chybí metadata instrumentu.`,
+        );
       }
       const instrumentCurrency = asCurrency(instrument?.currency);
       if (!instrumentCurrency) {
-        return calibrationError("Trading 212 nevrátilo měnu instrumentu u některé pozice.");
+        return instrumentError(
+          "T212-INSTRUMENT-INVALID-CURRENCY",
+          `instrument „${diagnosticTicker(instrument.ticker || code)}“ má neplatnou měnu „${diagnosticCurrency(instrument.currency)}“.`,
+        );
       }
       const mapped = toYahooSymbol(instrument.ticker);
       if (!mapped) {
-        return calibrationError("Trading 212 vrátilo ticker v neznámém formátu.");
+        return instrumentError(
+          "T212-INSTRUMENT-INVALID-TICKER",
+          `ticker „${diagnosticTicker(instrument.ticker || code)}“ nemá podporovaný formát.`,
+        );
       }
       if (!mapped.knownVenue) {
-        return calibrationError(`Trading 212 vrátilo ticker z neznámé burzy (${mapped.venue}). Nahlaste prosím tento ticker, aby šlo doplnit správnou Yahoo příponu.`);
+        return instrumentError(
+          "T212-INSTRUMENT-UNKNOWN-VENUE",
+          `ticker „${diagnosticTicker(instrument.ticker || code)}“ je z neznámé burzy „${diagnosticVenue(mapped.venue)}“.`,
+        );
       }
       positions.push({
         ticker: mapped.ticker,
@@ -218,7 +306,13 @@ var IKT212Api = (() => {
         || Array.isArray(accountSummary.cash)) {
         throw requestError("summary");
       }
-      return { ...summaryResponse, open: accountSummary.open, cash: accountSummary.cash };
+      return {
+        ...summaryResponse,
+        open: accountSummary.open,
+        cash: accountSummary.cash,
+        ...(accountSummary.orders !== undefined ? { orders: accountSummary.orders } : {}),
+        ...(accountSummary.valueOrders !== undefined ? { valueOrders: accountSummary.valueOrders } : {}),
+      };
     }
 
     if (!Array.isArray(summaryResponse.open)
