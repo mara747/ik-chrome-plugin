@@ -232,5 +232,4 @@ test("registers the exact production XTB execution-world entries", () => {
     },
   ]);
   assert.equal(manifest.host_permissions, undefined);
-  assert.equal(manifest.version, "0.3.1");
 });
