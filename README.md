@@ -53,8 +53,16 @@ ani nepřepočítávají — převod se přeskočí a do poznámky se přidá up
 
 ## Architektura
 
+Když se import nepovede, doplněk nabídne **Odeslat diagnostiku**. Před
+odesláním ukáže přesný technický obsah a dovolí přidat krátkou poznámku.
+Diagnostika se odešle až po druhém potvrzení přes přihlášený web klubu; nikdy
+neobsahuje cookies, přihlašovací údaje, identitu účtu, hodnotu ani pozice
+portfolia, celé HTML nebo raw odpověď brokera. Po přijetí dostane hlášení krátký
+referenční kód.
+
 ```
 popup/            UI: detekce brokera na aktivním tabu → scrape → odeslání
+lib/diagnostics.js bezpečná verzovaná obálka diagnostických hlášení
 lib/normalize.js  sdílené: parsování čísel/měn (en i cs formáty), yahooSymbol,
                   přesné tickerové výjimky, DOM helpery a registrace scraperu
                   (IK_DETECT / IK_SCRAPE)
@@ -82,7 +90,7 @@ klubu; `club.js` ho doručuje stránce, dokud portfolio stránka nepotvrdí ACK
    jiný execution world. Předávej jen normalizovaný výsledek přes jednorázový,
    nonce-bound, same-origin `window.postMessage` bridge (viz T212 a XTB).
 3. Do `manifest.json` přidej potřebné bloky `content_scripts`; u běžného
-   ISOLATED-world scraperu načti `lib/normalize.js` jako první.
+   ISOLATED-world scraperu načti `lib/diagnostics.js`, potom `lib/normalize.js`.
 4. Nedovoditelnou výjimku tickeru přidej nahoru do
    `BROKER_TICKER_OVERRIDES` v `lib/normalize.js`, nikoli do jednotlivého
    scraperu. Musí mít přesný klíč broker + normalizovaný ticker + měna a test.

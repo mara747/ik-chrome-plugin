@@ -227,7 +227,7 @@ test("registers the exact production XTB execution-world entries", () => {
     },
     {
       matches: ["https://xstation5.xtb.com/*"],
-      js: ["lib/normalize.js", "content/brokers/xtb.js"],
+      js: ["lib/diagnostics.js", "lib/normalize.js", "content/brokers/xtb.js"],
       run_at: "document_idle",
     },
   ]);

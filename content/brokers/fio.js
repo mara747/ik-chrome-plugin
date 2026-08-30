@@ -71,12 +71,63 @@
     try {
       const resp = await fetch("/e-portfolio.cgi?menu=2",
         { credentials: "same-origin" });
-      if (!resp.ok) return null;
+      const meta = {
+        request_ok: resp.ok,
+        request_status: resp.status,
+        request_redirected: resp.redirected,
+      };
+      if (!resp.ok) return { doc: null, meta };
       const html = await resp.text();
-      return new DOMParser().parseFromString(html, "text/html");
+      return { doc: new DOMParser().parseFromString(html, "text/html"), meta };
     } catch {
-      return null;
+      return {
+        doc: null,
+        meta: { request_ok: false, request_status: null, request_redirected: false },
+      };
     }
+  }
+
+  function diagnosticDetail(doc, requestMeta) {
+    const vyvoj = doc?.querySelector("#portfolio_vyvoj_table") || null;
+    const stav = doc?.querySelector("#portfolio_table") || null;
+    const table = vyvoj || stav
+      || (doc ? [...doc.querySelectorAll("table.data_table")].find(colRowOf) : null);
+    const colRow = table ? colRowOf(table) : null;
+    const headers = colRow ? [...colRow.cells].map((c) => c.innerText.trim()) : [];
+    const columnMap = {
+      symbol: headers.indexOf("Symbol"),
+      start_shares: headers.indexOf("Akcie"),
+      delta_qty: headers.indexOf("Kusy"),
+      buys: headers.indexOf("Nákup"),
+      sells: headers.indexOf("Prodej"),
+      end_shares: headers.lastIndexOf("Akcie"),
+      quantity: headers.findIndex((h) => /^Množství$/i.test(h)),
+      end_value: headers.lastIndexOf("Majetek"),
+    };
+    const rows = table && colRow
+      ? [...table.rows].slice([...table.rows].indexOf(colRow) + 1) : [];
+    const symbolIdx = columnMap.symbol;
+    return {
+      path: location.pathname.slice(0, 200),
+      menu: new URLSearchParams(location.search).get("menu"),
+      login_form: !!document.querySelector("input[type=password]"),
+      request_ok: requestMeta.request_ok,
+      request_status: requestMeta.request_status,
+      request_redirected: requestMeta.request_redirected,
+      vyvoj_table: !!vyvoj,
+      stav_table: !!stav,
+      col_row: !!colRow,
+      title_row: !!table?.querySelector("tr.title_row"),
+      headers,
+      row_count: rows.length,
+      column_map: columnMap,
+      sum_row_found: symbolIdx >= 0 && rows.some((row) =>
+        SUM_RE.test((row.cells[symbolIdx]?.innerText || "").trim())),
+      position_row_found: symbolIdx >= 0 && rows.some((row) => {
+        const symbol = (row.cells[symbolIdx]?.innerText || "").trim();
+        return !!symbol && !SUM_RE.test(symbol) && !isCashSymbol(symbol);
+      }),
+    };
   }
 
   function parseVyvoj(doc) {
@@ -233,28 +284,35 @@
     broker: "fio",
     brokerLabel: "Fio e-Broker",
     portfolioUrl: "https://ebroker.fio.cz/e-portfolio.cgi?menu=2",
-    // Login i odhlášení jedou na stejných /e-* cestách jako aplikace — cesta
-    // sama o sobě nestačí. Přihlášené stránky nesou v titulku e-mail účtu
-    // („Portfolio/Stav - jmeno@… - 11:38"), login/logout ne.
-    isPortfolioPage: () =>
-      /^\/e-/.test(location.pathname) && /@/.test(document.title),
+    // Scrape umí Vývoj stáhnout same-origin z libovolné stránky e-Brokeru.
+    // Popup proto nesmí hádat přihlášení podle titulku (některým členům Fio
+    // e-mail v title neposílá) a zacyklit je navigací na tutéž URL.
+    isPortfolioPage: () => true,
 
     async scrape() {
       // Primárně Vývoj (?menu=2) — jediný pohled s nákupními cenami. Když je
       // člen přímo na něm, parsuj DOM; jinak si ho stáhni same-origin.
       let parsed = parseVyvoj(document);
+      let diagnosticDoc = document;
+      let requestMeta = { request_ok: true, request_status: null, request_redirected: false };
       if (!parsed) {
-        const doc = await fetchVyvojDoc();
-        parsed = doc ? parseVyvoj(doc) : null;
+        const fetched = await fetchVyvojDoc();
+        requestMeta = fetched.meta;
+        diagnosticDoc = fetched.doc || document;
+        parsed = fetched.doc ? parseVyvoj(fetched.doc) : null;
       }
       if (!parsed) parsed = parseStav(document);
 
       if (!parsed) {
-        const login = document.querySelector("input[type=password]")
-          || /Login/i.test(document.title);
+        const login = document.querySelector("input[type=password]");
         return {
           ok: false,
           needsCalibration: !login,
+          diagnostic: IKDiagnostics.failure({
+            phase: "scrape",
+            errorCode: login ? "login_required" : "layout_changed",
+            brokerDetail: diagnosticDetail(diagnosticDoc, requestMeta),
+          }),
           error: login
             ? "Vypadá to, že nejsi v e-Brokeru přihlášený. Přihlas se a zkus "
               + "to znovu."

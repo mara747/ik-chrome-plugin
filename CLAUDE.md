@@ -62,6 +62,19 @@ order or failed balance identity produces null.
 null/absent = broker doesn't say → the web keeps deriving it from
 `broker_value` − positions.
 
+**Diagnostic reports (root ADR 0015).** Every failed import phase may offer a
+two-step, member-confirmed report. `lib/diagnostics.js` is the shared module:
+adapters pass it only explicit allowlisted structural facts; it adds the
+versioned envelope and a sanitized exception location. The plugin stores a
+confirmed report as `ik_pending_diagnostic`; `content/club.js` delivers it to
+the signed-in web, which writes it through Clerk JWT + RLS. Never add generic
+DOM serialization, screenshots, row/cell contents, raw response bodies,
+cookies, tokens, storage contents, account/member identifiers or portfolio
+values/positions. Unexpected exceptions carry only their type, stable step and
+up to three `file.js:line` first-party frames — never the raw message/stack.
+The admin console can generate an anonymized Markdown brief; individual
+incidents never belong in this file.
+
 Some brokers carry their OWN symbol variant for an instrument — a numbered
 ticker kept after the plain symbol was recycled to another company, or a
 different listing line of the same fund — while Yahoo (and the club web, which

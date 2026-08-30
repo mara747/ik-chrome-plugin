@@ -24,6 +24,14 @@
     <p class="hint small">Ve druhém tabu měj otevřený web klubu se svým portfoliem — tam se import zkontroluje a uloží.</p>
   </section>
 
+  <section id="view-diagnostic-result" hidden>
+    <p id="diagnostic-result-text"></p>
+    <div class="actions">
+      <button id="btn-result-close">Zavřít</button>
+      <button id="btn-result-retry" class="primary">Zkusit znovu</button>
+    </div>
+  </section>
+
   <!-- State: on a supported broker page -->
   <section id="view-broker" hidden>
     <div class="row">
@@ -48,13 +56,33 @@
       <p class="hint small">Web klubu se otevře na vybraném portfoliu s načtenými daty — zkontroluj a ulož.</p>
     </div>
 
-    <p id="error" class="error" hidden></p>
+    <div id="error-box" hidden>
+      <p id="error" class="error"></p>
+      <button id="btn-diagnostic">Odeslat diagnostiku</button>
+    </div>
+
+    <div id="diagnostic" class="diagnostic" hidden>
+      <h2>Odeslat diagnostiku</h2>
+      <p class="hint small">Odešle se verze doplňku, broker, fáze chyby a technická podoba stránky bez hodnot portfolia.</p>
+      <p class="safe">Neposílají se cookies, přihlašovací údaje, portfolio ani identita účtu.</p>
+      <details>
+        <summary>Zobrazit technické údaje</summary>
+        <pre id="diagnostic-preview"></pre>
+      </details>
+      <label for="diagnostic-note">Co se stalo? (nepovinné)</label>
+      <textarea id="diagnostic-note" maxlength="500" placeholder="Nevkládej číslo účtu, hodnoty portfolia ani přihlašovací údaje."></textarea>
+      <div class="actions">
+        <button id="btn-diagnostic-back">Zpět</button>
+        <button id="btn-diagnostic-send" class="primary">Odeslat</button>
+      </div>
+    </div>
   </section>
 
   <footer>
     <a href="#" id="open-club">Otevřít web klubu</a>
   </footer>
 
+  <script src="../lib/diagnostics.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

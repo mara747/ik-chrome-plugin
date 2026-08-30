@@ -15,11 +15,15 @@
 "use strict";
 
 const IK_KEY = "ik_pending_import";
+const IK_DIAGNOSTIC_KEY = "ik_pending_diagnostic";
+const IK_HANDOFF_FAILURE_KEY = "ik_failed_handoff";
 const IK_MAX_AGE_MS = 10 * 60 * 1000;   // stale imports are dropped, not delivered
+const IK_DIAGNOSTIC_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const IK_RETRY_MS = 800;
 const IK_GIVE_UP_MS = 2 * 60 * 1000;
 
 let ikTimer = null;
+let diagnosticTimer = null;
 
 function ikStopDelivery() {
   if (ikTimer) { clearInterval(ikTimer); ikTimer = null; }
@@ -44,7 +48,22 @@ function ikStartDelivery() {
         },
         window.location.origin,
       );
-      if (Date.now() - t0 > IK_GIVE_UP_MS) ikStopDelivery();
+      if (Date.now() - t0 > IK_GIVE_UP_MS) {
+        ikStopDelivery();
+        chrome.storage.local.set({
+          [IK_HANDOFF_FAILURE_KEY]: {
+            broker: entry.payload.broker,
+            brokerLabel: entry.payload.brokerLabel,
+            diagnostic: IKDiagnostics
+              ? IKDiagnostics.failure({ phase: "handoff", errorCode: "handoff_timeout" })
+              : {
+                  phase: "handoff", errorCode: "handoff_timeout",
+                  commonDetail: {}, brokerDetail: {},
+                },
+            savedAt: Date.now(),
+          },
+        });
+      }
     };
     post();
     ikTimer = setInterval(post, IK_RETRY_MS);
@@ -64,6 +83,56 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 ikStartDelivery(); // a payload may already be waiting when the tab (re)loads
+
+function stopDiagnosticDelivery() {
+  if (diagnosticTimer) { clearInterval(diagnosticTimer); diagnosticTimer = null; }
+}
+
+function startDiagnosticDelivery() {
+  chrome.storage.local.get(IK_DIAGNOSTIC_KEY).then((store) => {
+    const entry = store[IK_DIAGNOSTIC_KEY];
+    stopDiagnosticDelivery();
+    if (!entry?.report) return;
+    if (Date.now() - (entry.savedAt || 0) > IK_DIAGNOSTIC_MAX_AGE_MS) {
+      chrome.storage.local.remove(IK_DIAGNOSTIC_KEY);
+      return;
+    }
+    const post = () => window.postMessage(
+      { type: "IK_PLUGIN_DIAGNOSTIC", report: entry.report },
+      window.location.origin,
+    );
+    post();
+    diagnosticTimer = setInterval(post, IK_RETRY_MS);
+  });
+}
+
+window.addEventListener("message", (e) => {
+  if (e.source !== window) return;
+  if (e.data?.type !== "IK_PLUGIN_DIAGNOSTIC_ACK"
+      && e.data?.type !== "IK_PLUGIN_DIAGNOSTIC_REJECTED") return;
+  chrome.storage.local.get(IK_DIAGNOSTIC_KEY).then((store) => {
+    const entry = store[IK_DIAGNOSTIC_KEY];
+    if (entry?.report?.report_id !== e.data.reportId) return;
+    stopDiagnosticDelivery();
+    chrome.storage.local.remove(IK_DIAGNOSTIC_KEY);
+    chrome.storage.local.set({
+      ik_diagnostic_result: {
+        reportId: e.data.reportId,
+        referenceCode: e.data.referenceCode || null,
+        rejected: e.data.type === "IK_PLUGIN_DIAGNOSTIC_REJECTED",
+        savedAt: Date.now(),
+      },
+    });
+  });
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && changes[IK_DIAGNOSTIC_KEY]?.newValue) {
+    startDiagnosticDelivery();
+  }
+});
+
+startDiagnosticDelivery();
 
 // Popup status round-trip: chrome message → page ping → page pong → response.
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {

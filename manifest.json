@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Investiční klub — import portfolia",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "description": "Importuje hodnotu a pozice z eToro, IBKR, Trading 212, Portu, Fio, Anycoin a XTB do Investičního klubu.",
   "action": {
     "default_popup": "popup/popup.html",
@@ -11,7 +11,7 @@
   "content_scripts": [
     {
       "matches": ["https://www.etoro.com/*"],
-      "js": ["lib/normalize.js", "content/brokers/etoro.js"],
+      "js": ["lib/diagnostics.js", "lib/normalize.js", "content/brokers/etoro.js"],
       "run_at": "document_idle"
     },
     {
@@ -20,22 +20,22 @@
         "https://*.interactivebrokers.co.uk/*",
         "https://*.interactivebrokers.ie/*"
       ],
-      "js": ["lib/normalize.js", "content/brokers/ibkr.js"],
+      "js": ["lib/diagnostics.js", "lib/normalize.js", "content/brokers/ibkr.js"],
       "run_at": "document_idle"
     },
     {
       "matches": ["https://app.portu.cz/*", "https://www.portu.cz/*"],
-      "js": ["lib/normalize.js", "content/brokers/portu.js"],
+      "js": ["lib/diagnostics.js", "lib/normalize.js", "content/brokers/portu.js"],
       "run_at": "document_idle"
     },
     {
       "matches": ["https://ebroker.fio.cz/*"],
-      "js": ["lib/normalize.js", "content/brokers/fio.js"],
+      "js": ["lib/diagnostics.js", "lib/normalize.js", "content/brokers/fio.js"],
       "run_at": "document_idle"
     },
     {
       "matches": ["https://www.anycoin.cz/*", "https://anycoin.cz/*"],
-      "js": ["lib/normalize.js", "content/brokers/anycoin.js"],
+      "js": ["lib/diagnostics.js", "lib/normalize.js", "content/brokers/anycoin.js"],
       "run_at": "document_idle"
     },
     {
@@ -46,7 +46,7 @@
     },
     {
       "matches": ["https://app.trading212.com/*"],
-      "js": ["lib/normalize.js", "content/brokers/t212.js"],
+      "js": ["lib/diagnostics.js", "lib/normalize.js", "content/brokers/t212.js"],
       "run_at": "document_idle"
     },
     {
@@ -57,7 +57,7 @@
     },
     {
       "matches": ["https://xstation5.xtb.com/*"],
-      "js": ["lib/normalize.js", "content/brokers/xtb.js"],
+      "js": ["lib/diagnostics.js", "lib/normalize.js", "content/brokers/xtb.js"],
       "run_at": "document_idle"
     },
     {
@@ -66,7 +66,7 @@
         "http://localhost/*",
         "http://127.0.0.1/*"
       ],
-      "js": ["content/club.js"],
+      "js": ["lib/diagnostics.js", "content/club.js"],
       "run_at": "document_idle"
     }
   ]

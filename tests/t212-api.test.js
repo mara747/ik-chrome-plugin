@@ -769,7 +769,9 @@ test("keeps both T212 execution-world resources with the broker adapters", () =>
   assert.deepEqual(mainWorld.js, ["content/brokers/t212-api.js"]);
   assert.equal(mainWorld.run_at, "document_idle");
   assert.ok(isolatedWorld);
-  assert.deepEqual(isolatedWorld.js, ["lib/normalize.js", "content/brokers/t212.js"]);
+  assert.deepEqual(isolatedWorld.js, [
+    "lib/diagnostics.js", "lib/normalize.js", "content/brokers/t212.js",
+  ]);
   assert.equal(mainWorld.js.some((file) => file.startsWith("lib/") || file === "content/t212-page-api.js"), false);
   assert.equal(manifest.host_permissions, undefined);
 });

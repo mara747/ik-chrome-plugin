@@ -91,6 +91,16 @@ button.primary:disabled { opacity: 0.6; cursor: default; }
 .target .hint:empty { display: none; }
 
 .error { color: var(--error); margin-top: 10px; white-space: pre-line; }
+#error-box button { margin-top: 8px; }
+.diagnostic { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 10px; }
+.diagnostic h2 { font-size: 14px; }
+.diagnostic .safe { color: var(--warn); font-size: 11px; margin: 7px 0; }
+.diagnostic summary { cursor: pointer; font-size: 11px; color: var(--muted); }
+.diagnostic pre { max-height: 150px; overflow: auto; white-space: pre-wrap; font-size: 9px; margin: 6px 0; padding: 6px; border: 1px solid var(--border); border-radius: 6px; }
+.diagnostic label { display: block; color: var(--muted); font-size: 11px; margin-top: 8px; }
+.diagnostic textarea { width: 100%; min-height: 64px; resize: vertical; margin-top: 4px; padding: 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--fg); }
+.actions { display: flex; gap: 6px; }
+.actions button.primary { margin-top: 0; }
 
 footer { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 8px; }
 footer a { color: var(--muted); font-size: 11px; text-decoration: none; }
