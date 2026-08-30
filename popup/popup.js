@@ -17,6 +17,15 @@ const IK_DIAGNOSTIC_KEY = "ik_pending_diagnostic";
 const IK_HANDOFF_FAILURE_KEY = "ik_failed_handoff";
 const IK_DIAGNOSTIC_RESULT_KEY = "ik_diagnostic_result";
 const PLUGIN_VERSION = chrome.runtime.getManifest().version;
+const BROKER_HOSTS = [
+  [/^(www\.)?etoro\.com$/, ["etoro", "eToro"]],
+  [/(^|\.)interactivebrokers\.(com|co\.uk|ie)$/, ["ibkr", "Interactive Brokers"]],
+  [/(^|\.)portu\.cz$/, ["portu", "Portu"]],
+  [/^ebroker\.fio\.cz$/, ["fio", "Fio e-Broker"]],
+  [/^(www\.)?anycoin\.cz$/, ["anycoin", "Anycoin"]],
+  [/^app\.trading212\.com$/, ["t212", "Trading 212"]],
+  [/^xstation5\.xtb\.com$/, ["xtb", "XTB"]],
+];
 
 const $ = (id) => document.getElementById(id);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -101,8 +110,9 @@ function openDiagnostic() {
     pluginVersion: PLUGIN_VERSION,
     diagnostic: diagnosticContext.diagnostic,
   });
-  $("diagnostic-preview").textContent = JSON.stringify(report, null, 2);
+  $("diagnostic-note").value = "";
   $("diagnostic").dataset.report = JSON.stringify(report);
+  refreshDiagnosticPreview();
   $("error-box").hidden = true;
   $("diagnostic").hidden = false;
 }
@@ -294,6 +304,29 @@ function homeView() {
   }
 }
 
+function brokerForUrl(url) {
+  try {
+    const host = new URL(url).hostname;
+    const match = BROKER_HOSTS.find(([pattern]) => pattern.test(host));
+    return match ? { broker: match[1][0], brokerLabel: match[1][1] } : null;
+  } catch {
+    return null;
+  }
+}
+
+function detectionFailureView(broker) {
+  $("view-broker").hidden = false;
+  $("broker-name").textContent = broker.brokerLabel;
+  $("broker-hint").textContent = "Rozšíření tuto stránku nedokázalo načíst.";
+  $("btn-scrape").hidden = true;
+  showError("Obnov stránku brokera a zkus import znovu.", {
+    ...broker,
+    diagnostic: IKDiagnostics.failure({
+      phase: "detect", errorCode: "page_not_recognized",
+    }),
+  });
+}
+
 async function init() {
   $("open-club").addEventListener("click", (e) => {
     e.preventDefault();
@@ -341,6 +374,8 @@ async function init() {
     const det = await chrome.tabs.sendMessage(tab.id, { type: "IK_DETECT" });
     if (det?.supported) return brokerView(det, tab);
   } catch { /* no scraper on this page */ }
+  const knownBroker = brokerForUrl(tab.url);
+  if (knownBroker) return detectionFailureView(knownBroker);
   homeView();
 }
 
