@@ -107,6 +107,16 @@ function openDiagnostic() {
   $("diagnostic").hidden = false;
 }
 
+function refreshDiagnosticPreview() {
+  const base = JSON.parse($("diagnostic").dataset.report || "null");
+  if (!base) return;
+  const exact = {
+    ...base,
+    member_note: $("diagnostic-note").value.trim().slice(0, 500),
+  };
+  $("diagnostic-preview").textContent = JSON.stringify(exact, null, 2);
+}
+
 async function sendDiagnostic() {
   const base = JSON.parse($("diagnostic").dataset.report || "null");
   if (!base) return;
@@ -198,6 +208,13 @@ function brokerView(det, tab) {
 
   if (!det.onPortfolioPage && det.portfolioUrl) {
     $("broker-hint").textContent = "Nejsi na stránce portfolia.";
+    showError("Plugin na této stránce nerozpoznal portfolio.", {
+      broker: det.broker,
+      brokerLabel: det.brokerLabel,
+      diagnostic: IKDiagnostics.failure({
+        phase: "detect", errorCode: "page_not_recognized",
+      }),
+    });
     btn.textContent = "Přejít na stránku portfolia";
     btn.onclick = () => {
       chrome.tabs.update(tab.id, { url: det.portfolioUrl });
@@ -288,6 +305,7 @@ async function init() {
     $("error-box").hidden = false;
   });
   $("btn-diagnostic-send").addEventListener("click", () => void sendDiagnostic());
+  $("diagnostic-note").addEventListener("input", refreshDiagnosticPreview);
   $("btn-result-close").addEventListener("click", () => window.close());
   $("btn-result-retry").addEventListener("click", async () => {
     await chrome.storage.local.remove(IK_DIAGNOSTIC_RESULT_KEY);

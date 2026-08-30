@@ -110,7 +110,7 @@
     return {
       path: location.pathname.slice(0, 200),
       menu: new URLSearchParams(location.search).get("menu"),
-      login_form: !!document.querySelector("input[type=password]"),
+      login_form: !!doc?.querySelector("input[type=password]"),
       request_ok: requestMeta.request_ok,
       request_status: requestMeta.request_status,
       request_redirected: requestMeta.request_redirected,
@@ -284,14 +284,14 @@
     broker: "fio",
     brokerLabel: "Fio e-Broker",
     portfolioUrl: "https://ebroker.fio.cz/e-portfolio.cgi?menu=2",
-    // Scrape umí Vývoj stáhnout same-origin z libovolné stránky e-Brokeru.
-    // Popup proto nesmí hádat přihlášení podle titulku (některým členům Fio
-    // e-mail v title neposílá) a zacyklit je navigací na tutéž URL.
+    // Scrape can fetch the performance view same-origin from every e-Broker
+    // page. The popup must not guess login state from the title: Fio omits the
+    // e-mail for some members, which used to create a same-URL redirect loop.
     isPortfolioPage: () => true,
 
     async scrape() {
-      // Primárně Vývoj (?menu=2) — jediný pohled s nákupními cenami. Když je
-      // člen přímo na něm, parsuj DOM; jinak si ho stáhni same-origin.
+      // Prefer the performance view (?menu=2), the only view with purchase
+      // prices. Parse its DOM directly or fetch it same-origin from elsewhere.
       let parsed = parseVyvoj(document);
       let diagnosticDoc = document;
       let requestMeta = { request_ok: true, request_status: null, request_redirected: false };
@@ -304,7 +304,7 @@
       if (!parsed) parsed = parseStav(document);
 
       if (!parsed) {
-        const login = document.querySelector("input[type=password]");
+        const login = diagnosticDoc.querySelector("input[type=password]");
         return {
           ok: false,
           needsCalibration: !login,

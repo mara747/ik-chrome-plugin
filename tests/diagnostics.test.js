@@ -73,3 +73,12 @@ test("unknown phases and codes fail closed to generic values", () => {
   assert.equal(failure.phase, "scrape");
   assert.equal(failure.errorCode, "unexpected_error");
 });
+
+test("preserves every supported failure phase in the common envelope", () => {
+  const diagnostics = loadDiagnostics();
+  for (const phase of ["detect", "scrape", "normalize", "targets", "handoff"]) {
+    assert.equal(diagnostics.failure({
+      phase, errorCode: "unexpected_error",
+    }).phase, phase);
+  }
+});
