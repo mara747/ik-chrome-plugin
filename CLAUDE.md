@@ -16,8 +16,9 @@ monorepo since 2026-07-13): members debug their own broker quirks and send
 PRs — README has the contributor section. Never commit anything secret or any
 member's portfolio data here; push = publish.
 
-Czech in user-facing strings (popup, error messages), English code/comments —
-same convention as the sibling projects.
+Czech in user-facing strings (popup, error messages), English code AND
+comments. This deliberately DIFFERS from the sibling projects (which use Czech
+WHY comments): this repo is public and members contribute PRs in English.
 
 ## How it works (message flow)
 

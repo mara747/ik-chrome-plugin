@@ -21,6 +21,11 @@ const IK_MAX_AGE_MS = 10 * 60 * 1000;   // stale imports are dropped, not delive
 const IK_DIAGNOSTIC_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const IK_RETRY_MS = 800;
 const IK_GIVE_UP_MS = 2 * 60 * 1000;
+// After the initial burst the diagnostic keeps retrying SPARSELY instead of
+// stopping: the club web is a SPA, so "next page load restarts delivery" may
+// never happen within a long-lived tab (review 2026-08-31). ~2 RPC calls/min
+// is cheap; the report still expires after 24 hours.
+const IK_DIAGNOSTIC_SPARSE_MS = 30 * 1000;
 
 let ikTimer = null;
 let diagnosticTimer = null;
@@ -97,16 +102,26 @@ function startDiagnosticDelivery() {
       chrome.storage.local.remove(IK_DIAGNOSTIC_KEY);
       return;
     }
-    // Týž give-up jako u importu (gril 2026-08-31): bez stropu by se při
-    // výpadku Supabase mlátilo RPC ~75×/min, dokud tab žije. Hlášení ve
-    // storage přežívá (24 h) — další načtení stránky doručení zopakuje.
+    // Same initial brake as the import (2 minutes of 800 ms retries — without
+    // it a Supabase outage meant ~75 RPC calls/min for as long as the tab
+    // lived), then a sparse 30 s cadence until ACK or the 24 h expiry.
     const t0 = Date.now();
+    let sparse = false;
     const post = () => {
+      if (Date.now() - (entry.savedAt || 0) > IK_DIAGNOSTIC_MAX_AGE_MS) {
+        stopDiagnosticDelivery();
+        chrome.storage.local.remove(IK_DIAGNOSTIC_KEY);
+        return;
+      }
       window.postMessage(
         { type: "IK_PLUGIN_DIAGNOSTIC", report: entry.report },
         window.location.origin,
       );
-      if (Date.now() - t0 > IK_GIVE_UP_MS) stopDiagnosticDelivery();
+      if (!sparse && Date.now() - t0 > IK_GIVE_UP_MS) {
+        sparse = true;
+        clearInterval(diagnosticTimer);
+        diagnosticTimer = setInterval(post, IK_DIAGNOSTIC_SPARSE_MS);
+      }
     };
     post();
     diagnosticTimer = setInterval(post, IK_RETRY_MS);
@@ -127,8 +142,8 @@ window.addEventListener("message", (e) => {
         reportId: e.data.reportId,
         referenceCode: e.data.referenceCode || null,
         rejected: e.data.type === "IK_PLUGIN_DIAGNOSTIC_REJECTED",
-        // „rate_limited" | „invalid" — popup podle toho volí text; bez důvodu
-        // by i propadlé členství tvrdilo „podkladů už máme dost".
+        // "rate_limited" | "invalid" — the popup picks its wording from this;
+        // without it a lapsed membership would also claim "we have enough".
         rejectReason: e.data.reason || null,
         savedAt: Date.now(),
       },
