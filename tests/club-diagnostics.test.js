@@ -17,14 +17,23 @@ const KEY = "ik_pending_diagnostic";
 const RESULT_KEY = "ik_diagnostic_result";
 const HOUR = 60 * 60 * 1000;
 
-function createHarness() {
-  const storage = new Map();
-  const storageListeners = [];
+// chrome.storage.local is shared between tabs, and every tab's interval must
+// tick on the same clock — the "world" holds that shared state so a test can
+// run two harnesses (= two club tabs) against one storage.
+function createWorld() {
+  return {
+    storage: new Map(),
+    storageListeners: [],
+    intervals: new Map(),
+    nextId: 1,
+    clock: 1_000_000,
+  };
+}
+
+function createHarness(world = createWorld()) {
+  const { storage, storageListeners, intervals } = world;
   const messageListeners = [];
   const posted = [];
-  const intervals = new Map();
-  let nextId = 1;
-  let clock = 1_000_000;
 
   const flush = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -45,7 +54,12 @@ function createHarness() {
             return Promise.resolve();
           },
           remove: (key) => {
+            // Real Chrome fires onChanged on removal too (no newValue) —
+            // the multi-tab stop path depends on exactly that event.
+            if (!storage.has(key)) return Promise.resolve();
+            const oldValue = storage.get(key);
             storage.delete(key);
+            storageListeners.forEach((l) => l({ [key]: { oldValue } }, "local"));
             return Promise.resolve();
           },
         },
@@ -54,13 +68,13 @@ function createHarness() {
       runtime: { onMessage: { addListener() {} } },
     },
     setInterval: (fn, ms) => {
-      const id = nextId;
-      nextId += 1;
-      intervals.set(id, { fn, ms, next: clock + ms });
+      const id = world.nextId;
+      world.nextId += 1;
+      intervals.set(id, { fn, ms, next: world.clock + ms });
       return id;
     },
     clearInterval: (id) => intervals.delete(id),
-    Date: { now: () => clock },
+    Date: { now: () => world.clock },
   };
   sandbox.window = {
     location: { origin: "https://club.test", pathname: "/" },
@@ -80,14 +94,15 @@ function createHarness() {
     storage,
     posted,
     flush,
-    now: () => clock,
+    now: () => world.clock,
     load: async () => {
       vm.runInContext(SOURCE, sandbox);
       await flush();
     },
-    // Advance the fake clock, firing due interval ticks in time order.
+    // Advance the SHARED fake clock, firing due interval ticks (of every tab
+    // in the world) in time order.
     advance: async (ms) => {
-      const target = clock + ms;
+      const target = world.clock + ms;
       for (;;) {
         let earliest = null;
         for (const [id, it] of intervals) {
@@ -96,12 +111,12 @@ function createHarness() {
           }
         }
         if (!earliest) break;
-        clock = earliest.it.next;
+        world.clock = earliest.it.next;
         earliest.it.next += earliest.it.ms;
         earliest.it.fn();
         await flush();
       }
-      clock = target;
+      world.clock = target;
       await flush();
     },
     deliver: async (data) => {
@@ -183,6 +198,27 @@ test("REJECTED keeps the reason for the popup wording", async () => {
   assert.equal(result.rejected, true);
   assert.equal(result.rejectReason, "rate_limited");
   assert.equal(h.storage.has(KEY), false);
+});
+
+test("second club tab stops retrying once another tab's ACK clears storage", async () => {
+  const world = createWorld();
+  const tabA = createHarness(world);
+  const tabB = createHarness(world);
+  world.storage.set(KEY, entry(tabA));
+  await tabA.load();
+  await tabB.load();
+  assert.equal(tabA.diagnosticPosts().length, 1);
+  assert.equal(tabB.diagnosticPosts().length, 1);
+  // Only tab A's page inserts and acks; tab B must notice the storage removal.
+  await tabA.deliver({
+    type: "IK_PLUGIN_DIAGNOSTIC_ACK", reportId: "r-1", referenceCode: "FIO-ABC",
+  });
+  assert.equal(world.storage.has(KEY), false);
+  const postsA = tabA.diagnosticPosts().length;
+  const postsB = tabB.diagnosticPosts().length;
+  await tabA.advance(5 * 60 * 1000); // shared clock — ticks tab B's timer too
+  assert.equal(tabA.diagnosticPosts().length, postsA);
+  assert.equal(tabB.diagnosticPosts().length, postsB);
 });
 
 test("ACK for a different report is ignored", async () => {

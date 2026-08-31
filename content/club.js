@@ -83,8 +83,11 @@ window.addEventListener("message", (e) => {
   }
 });
 
+// Re-sync on ANY change to the key, including removal: when another club tab
+// gets the ACK and clears storage, this tab must stop its own retry timer too
+// (multi-tab review 2026-08-31). Start re-reads storage and stops when empty.
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === "local" && changes[IK_KEY]?.newValue) ikStartDelivery();
+  if (area === "local" && IK_KEY in changes) ikStartDelivery();
 });
 
 ikStartDelivery(); // a payload may already be waiting when the tab (re)loads
@@ -151,8 +154,10 @@ window.addEventListener("message", (e) => {
   });
 });
 
+// Same removal handling as the import above — without it a second club tab
+// kept re-posting an already-ACKed report every 30 s until the 24 h expiry.
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === "local" && changes[IK_DIAGNOSTIC_KEY]?.newValue) {
+  if (area === "local" && IK_DIAGNOSTIC_KEY in changes) {
     startDiagnosticDelivery();
   }
 });
