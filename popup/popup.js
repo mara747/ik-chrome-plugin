@@ -349,9 +349,11 @@ async function init() {
   const diagnosticResult = resultStore[IK_DIAGNOSTIC_RESULT_KEY];
   if (diagnosticResult && Date.now() - (diagnosticResult.savedAt || 0) < 24 * 60 * 60 * 1000) {
     $("view-diagnostic-result").hidden = false;
-    $("diagnostic-result-text").textContent = diagnosticResult.rejected
-      ? "Další diagnostiku teď neposíláme — podkladů už máme dost."
-      : `Diagnostika byla odeslána pod kódem ${diagnosticResult.referenceCode}.`;
+    $("diagnostic-result-text").textContent = !diagnosticResult.rejected
+      ? `Diagnostika byla odeslána pod kódem ${diagnosticResult.referenceCode}.`
+      : diagnosticResult.rejectReason === "rate_limited"
+        ? "Další diagnostiku teď neposíláme — podkladů už máme dost."
+        : "Diagnostiku se nepodařilo přijmout — zkus to znovu později.";
     await chrome.storage.local.remove(IK_DIAGNOSTIC_RESULT_KEY);
     return;
   }

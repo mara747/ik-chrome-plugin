@@ -97,10 +97,17 @@ function startDiagnosticDelivery() {
       chrome.storage.local.remove(IK_DIAGNOSTIC_KEY);
       return;
     }
-    const post = () => window.postMessage(
-      { type: "IK_PLUGIN_DIAGNOSTIC", report: entry.report },
-      window.location.origin,
-    );
+    // Týž give-up jako u importu (gril 2026-08-31): bez stropu by se při
+    // výpadku Supabase mlátilo RPC ~75×/min, dokud tab žije. Hlášení ve
+    // storage přežívá (24 h) — další načtení stránky doručení zopakuje.
+    const t0 = Date.now();
+    const post = () => {
+      window.postMessage(
+        { type: "IK_PLUGIN_DIAGNOSTIC", report: entry.report },
+        window.location.origin,
+      );
+      if (Date.now() - t0 > IK_GIVE_UP_MS) stopDiagnosticDelivery();
+    };
     post();
     diagnosticTimer = setInterval(post, IK_RETRY_MS);
   });
@@ -120,6 +127,9 @@ window.addEventListener("message", (e) => {
         reportId: e.data.reportId,
         referenceCode: e.data.referenceCode || null,
         rejected: e.data.type === "IK_PLUGIN_DIAGNOSTIC_REJECTED",
+        // „rate_limited" | „invalid" — popup podle toho volí text; bez důvodu
+        // by i propadlé členství tvrdilo „podkladů už máme dost".
+        rejectReason: e.data.reason || null,
         savedAt: Date.now(),
       },
     });
