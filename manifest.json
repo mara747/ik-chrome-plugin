@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Investiční klub — import portfolia",
-  "version": "0.4.1",
-  "description": "Importuje hodnotu a pozice z eToro, IBKR, Trading 212, Portu, Fio, Anycoin a XTB do Investičního klubu.",
+  "version": "0.5.0",
+  "description": "Importuje hodnotu a pozice z eToro, IBKR, Trading 212, Portu, Fio, Anycoin, XTB a George (ČS) do Investičního klubu.",
   "action": {
     "default_popup": "popup/popup.html",
     "default_title": "Import portfolia do Investičního klubu"
@@ -36,6 +36,11 @@
     {
       "matches": ["https://www.anycoin.cz/*", "https://anycoin.cz/*"],
       "js": ["lib/diagnostics.js", "lib/normalize.js", "content/brokers/anycoin.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://george.csas.cz/*"],
+      "js": ["lib/diagnostics.js", "lib/normalize.js", "content/brokers/george.js"],
       "run_at": "document_idle"
     },
     {

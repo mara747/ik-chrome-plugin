@@ -6,7 +6,7 @@ Project notes for Claude Code. Keep short and accurate.
 
 Chrome extension (Manifest V3, vanilla JS, **no build step**) for Investiční
 klub members: scrapes the member's OWN logged-in broker portfolio page (eToro,
-IBKR, Trading 212, Portu, Fio, Anycoin, XTB) and imports value + positions into
+IBKR, Trading 212, Portu, Fio, Anycoin, XTB, George ČS) and imports value + positions into
 the currently open portfolio on the club web (`../investicni-klub`, prod
 https://investicni-klub.lovable.app). README.md has the member-facing docs and
 the add-a-broker guide.
