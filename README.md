@@ -48,7 +48,7 @@ společná přesná tabulka v `lib/normalize.js`. Klíčem je broker + normalizo
 (nebo výslovně předaný přesný brokerový) ticker + nativní měna instrumentu;
 aktuálně obsahuje
 `XTB/DOC1/USD → DOC`, `XTB/ISLN.UK/USD → ISLN.L`,
-`T212/WEBN1.DE/EUR → WEBN.DE` a
+`T212/ALCC1/USD → OKLO`, `T212/WEBN1.DE/EUR → WEBN.DE` a
 `Portu/SX5EEX.DE/EUR → EUEA.AS`. Při kolizi s jinou pozicí se řádky neslučují
 ani nepřepočítávají — převod se přeskočí a do poznámky se přidá upozornění.
 
