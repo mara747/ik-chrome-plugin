@@ -132,6 +132,30 @@ test("applies the Portu override and preserves the instrument name", () => {
   );
 });
 
+test("maps T212's legacy Oklo catalog ticker to the current Yahoo symbol", () => {
+  const { IK } = loadNormalize();
+  const payload = {
+    broker: "t212",
+    positions: [{
+      ticker: "ALCC1",
+      shares: 2,
+      avgCost: 10,
+      currency: "USD",
+      note: "ISIN: US02156V1098; název: OKLO",
+    }],
+  };
+
+  const result = IK.applyBrokerTickerOverrides(payload);
+
+  assert.deepEqual(plain(result.positions[0]), {
+    ticker: "OKLO",
+    shares: 2,
+    avgCost: 10,
+    currency: "USD",
+    note: "ISIN: US02156V1098; název: OKLO",
+  });
+});
+
 test("reverts only a colliding override and appends the Czech audit note", () => {
   const { IK } = loadNormalize();
   const payload = {

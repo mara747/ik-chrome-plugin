@@ -87,7 +87,7 @@ rationale in the comment above it). Its key is broker ID → already-normalized
 ticker → native position currency (the currency guards against remapping an
 innocent same-named ticker on another venue); current aliases are XTB
 `DOC1/USD → DOC`, XTB `ISLN.UK/USD → ISLN.L`, T212
-`WEBN1.DE/EUR → WEBN.DE`, and Portu
+`ALCC1/USD → OKLO`, T212 `WEBN1.DE/EUR → WEBN.DE`, and Portu
 `SX5EEX.DE/EUR → EUEA.AS`. Do not put these non-derivable aliases in
 individual scrapers; every new entry needs a test. If an alias would collide
 with another final `(ticker, currency)` row, do not merge or reprice positions:
