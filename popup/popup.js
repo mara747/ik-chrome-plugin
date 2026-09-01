@@ -25,6 +25,7 @@ const BROKER_HOSTS = [
   [/^(www\.)?anycoin\.cz$/, ["anycoin", "Anycoin"]],
   [/^app\.trading212\.com$/, ["t212", "Trading 212"]],
   [/^xstation5\.xtb\.com$/, ["xtb", "XTB"]],
+  [/^george\.csas\.cz$/, ["george", "George (Česká spořitelna)"]],
 ];
 
 const $ = (id) => document.getElementById(id);
@@ -32,6 +33,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let scrapedPayload = null;
 let diagnosticContext = null;
+// Calibration report attached to a SUCCESSFUL but incomplete import (root ADR
+// 0015 addendum): same report shape, same confirmation dialog, same delivery —
+// only the entry point differs (offered next to the result, never blocking it).
+let calibrationContext = null;
+let diagnosticReturnTo = "error-box";
 // Last known club-tab state: { tab, origin, currentId, currentName, portfolios }.
 let clubState = { tab: null, origin: CLUB_HOME };
 
@@ -102,18 +108,34 @@ function showError(msg, context = null) {
   $("btn-diagnostic").hidden = !context;
 }
 
-function openDiagnostic() {
-  if (!diagnosticContext) return;
+// The ONE confirmation dialog: exact preview, optional 500-char note, second
+// button. `returnTo` says where we came from — a failure hides the error box
+// (nothing else to do there), while the success flow keeps the result panel
+// visible so "Odeslat do webu klubu" stays one click away.
+function openDiagnostic(context, returnTo = "error-box") {
+  if (!context) return;
+  diagnosticReturnTo = returnTo;
   const report = IKDiagnostics.createReport({
-    broker: diagnosticContext.broker,
-    brokerLabel: diagnosticContext.brokerLabel,
+    broker: context.broker,
+    brokerLabel: context.brokerLabel,
     pluginVersion: PLUGIN_VERSION,
-    diagnostic: diagnosticContext.diagnostic,
+    diagnostic: context.diagnostic,
   });
   $("diagnostic-note").value = "";
   $("diagnostic").dataset.report = JSON.stringify(report);
+  // Say out loud what THIS report carries: a calibration report also names the
+  // titles we could not import (never their sizes), a failure report does not.
+  $("diagnostic-scope").textContent = returnTo === "result"
+    ? "Odešle se verze doplňku, broker a identita titulů, které jsme neuměli "
+      + "naimportovat (ISIN, název, typ, burza, měna) — přesný obsah vidíš níž."
+    : "Odešle se verze doplňku, broker, fáze chyby a technická podoba stránky "
+      + "bez hodnot portfolia.";
+  $("diagnostic-safe").textContent = returnTo === "result"
+    ? "Neposílají se kusy, částky, hodnoty ani identita účtu, cookies "
+      + "a přihlašovací údaje."
+    : "Neposílají se cookies, přihlašovací údaje, portfolio ani identita účtu.";
   refreshDiagnosticPreview();
-  $("error-box").hidden = true;
+  if (returnTo === "error-box") $("error-box").hidden = true;
   $("diagnostic").hidden = false;
 }
 
@@ -137,6 +159,22 @@ async function sendDiagnostic() {
   await chrome.storage.local.set({
     [IK_DIAGNOSTIC_KEY]: { report, savedAt: Date.now() },
   });
+  if (diagnosticReturnTo === "result") {
+    // Success flow: the import handoff must not be blocked, so we neither
+    // steal focus nor close the popup. Delivery is unchanged — content/club.js
+    // picks the stored report up on storage.onChanged in an open club tab;
+    // if none is open yet, boot one in the BACKGROUND (same trick as the
+    // target-portfolio lookup) and let it deliver from there.
+    const club = await queryClub();
+    if (!club.tab) {
+      await chrome.tabs.create({ url: `${CLUB_HOME}/rozsireni`, active: false });
+    }
+    $("diagnostic").hidden = true;
+    $("result-calibration-text").textContent =
+      "Diagnostika je připravená — odešle se přes přihlášený web klubu.";
+    $("btn-result-diagnostic").hidden = true;
+    return;
+  }
   const st = await queryClub();
   if (st.tab) {
     await chrome.tabs.update(st.tab.id, { url: `${st.origin}/rozsireni`, active: true });
@@ -196,7 +234,7 @@ async function loadTargets(det) {
   hint.textContent = "";
 }
 
-function showResult(payload, det) {
+function showResult(payload, det, calibration = null) {
   scrapedPayload = payload;
   $("res-count").textContent = String(payload.positions.length);
   $("res-total").textContent = fmtTotal(payload.totalValue, payload.currency);
@@ -207,6 +245,15 @@ function showResult(payload, det) {
     li.textContent = w;
     ul.appendChild(li);
   }
+  calibrationContext = calibration ? {
+    broker: det.broker,
+    brokerLabel: det.brokerLabel,
+    diagnostic: calibration,
+  } : null;
+  $("result-calibration-text").textContent =
+    "Něco z účtu jsme naimportovat neuměli — pomůže nám, když pošleš diagnostiku.";
+  $("btn-result-diagnostic").hidden = false;
+  $("result-calibration").hidden = !calibrationContext;
   $("result").hidden = false;
   void loadTargets(det);
 }
@@ -240,7 +287,7 @@ function brokerView(det, tab) {
       $("result").hidden = true;
       try {
         const res = await chrome.tabs.sendMessage(tab.id, { type: "IK_SCRAPE" });
-        if (res?.ok) showResult(res.payload, det);
+        if (res?.ok) showResult(res.payload, det, res.calibration || null);
         else showError(res?.error || "Načtení se nepovedlo.", res?.diagnostic ? {
           broker: det.broker,
           brokerLabel: det.brokerLabel,
@@ -332,10 +379,13 @@ async function init() {
     e.preventDefault();
     chrome.tabs.create({ url: CLUB_HOME });
   });
-  $("btn-diagnostic").addEventListener("click", openDiagnostic);
+  $("btn-diagnostic").addEventListener(
+    "click", () => openDiagnostic(diagnosticContext, "error-box"));
+  $("btn-result-diagnostic").addEventListener(
+    "click", () => openDiagnostic(calibrationContext, "result"));
   $("btn-diagnostic-back").addEventListener("click", () => {
     $("diagnostic").hidden = true;
-    $("error-box").hidden = false;
+    if (diagnosticReturnTo === "error-box") $("error-box").hidden = false;
   });
   $("btn-diagnostic-send").addEventListener("click", () => void sendDiagnostic());
   $("diagnostic-note").addEventListener("input", refreshDiagnosticPreview);

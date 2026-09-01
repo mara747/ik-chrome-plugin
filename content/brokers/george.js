@@ -1,5 +1,5 @@
-// George — Česká spořitelna (george.csas.cz) — the member's mutual funds
-// held on a "Majetkový účet" (securities account).
+// George — Česká spořitelna (george.csas.cz) — the member's mutual funds and
+// shares held on a "Majetkový účet" (securities account).
 //
 // API-ONLY, calibrated live (2026-09) against a real account. The George SPA
 // talks to same-origin /webapi with an OAuth Bearer token the app keeps in
@@ -19,19 +19,32 @@
 // Money comes as integer value + precision: { value: 1551696, precision: 2 }
 // = 15516.96. Verified against the live account to the haléř.
 //
-// v1 imports FUND titles only (web ADR 0010 in the club repo): Czech mutual
-// funds have an ISIN but no Yahoo ticker, so each becomes a `kind: "fund"`
-// position (ticker = ISIN + name + price snapshot) and the club web values it
-// from the imported price. Non-FUND titles (George Invest stocks/ETF live on
-// the SAME account — verified with a live pending AVGO order) are skipped
-// LOUDLY with a warning + diagnostic counts, never silently.
+// FUND titles (web ADR 0010 in the club repo): Czech mutual funds have an ISIN
+// but no Yahoo ticker, so each becomes a `kind: "fund"` position (ticker =
+// ISIN + name + price snapshot) and the club web values it from the imported
+// price.
+//
+// SHARE titles (George Invest — they live on the SAME securities account,
+// verified with a live pending AVGO order; ADR 0010 addendum 2026-09-01) become
+// ORDINARY ticker positions with `ticker = ISIN`: George exposes no exchange
+// symbol at all (search, quotes and orders all run on ISIN + MIC + currency),
+// so the translation to a Yahoo quote is left to the club web's existing ticker
+// alias table. The plugin never guesses a symbol and never calls a third party.
+// The derived average (investedValue / shares) is only honest when the title
+// currency equals the account currency — George reports invested amounts in the
+// ACCOUNT currency — so a foreign-currency share is imported without an average
+// (member fills it in) and its money FIELD NAMES + currencies go to calibration.
+//
+// Every other securityType (ETF, bonds, certificates — exact strings unknown)
+// is skipped LOUDLY: a warning naming the titles plus their identity in the
+// calibration report, never a silent drop.
 //
 // Cash: a Majetkový účet has no cash layer — orders settle against the
 // member's current bank account (verified on the pending order's
 // settlementAccount), so balance == Σ title market values. We still send an
 // explicit cashValue = balance − Σ titles (normally 0): it switches off the
 // club web's derived-cash estimate, which would otherwise read skipped
-// non-FUND titles or rounding as cash. Pending orders are ignored.
+// titles or rounding as cash. Pending orders are ignored.
 "use strict";
 
 (() => {
@@ -40,12 +53,89 @@
   // error, never silently wrong numbers.
   const WEB_API_KEY = "a4f280d7-476c-4480-ae3f-e364308f9c87";
   const SECURITIES_URL = "/webapi/api/v3/netbanking/my/securities";
+  // The club server caps broker_detail at 8192 B — calibration lists are cut
+  // here so a member with an exotic account never gets a rejected report.
+  const MAX_CALIBRATION_ITEMS = 20;
+  const MAX_TEXT = 80;
 
   // { value: 1551696, precision: 2 } → 15516.96 (null when absent/malformed).
   function money(m) {
     if (!m || typeof m.value !== "number") return null;
     const p = typeof m.precision === "number" ? m.precision : 0;
     return m.value / Math.pow(10, p);
+  }
+
+  // Every string that may end up in a report or a note is trimmed, length
+  // capped and never coerced from a non-string (a changed API shape must not
+  // smuggle an object into the payload).
+  function safeText(value, max = MAX_TEXT) {
+    if (typeof value !== "string") return null;
+    const s = value.trim();
+    return s ? s.slice(0, max) : null;
+  }
+
+  const isMoney = (m) => !!m && typeof m === "object"
+    && typeof m.value === "number" && typeof m.precision === "number";
+
+  // Identity of a title we could NOT import (ADR 0015 addendum 2026-09-01):
+  // what it is, never how big it is. The member sees this in the preview and
+  // confirms it with a second button.
+  function titleIdentity(t) {
+    return {
+      isin: safeText(t.isin, 20),
+      title: safeText(t.title || t.fullTitle),
+      security_type: safeText(t.securityType, 30),
+      security_sub_type: safeText(t.securitySubType, 30),
+      exchange: safeText(t.positions?.[0]?.stockExchangeCode, 20),
+      currency: safeText(t.currency, 8),
+    };
+  }
+
+  // NAMES + currencies of every money-shaped field on a title (and on its first
+  // position), so we can learn which field carries a foreign share's invested
+  // amount in its NATIVE currency. Amounts, shares and performance are never
+  // read here — only the key and the currency tag.
+  function moneyFieldCurrencies(t) {
+    const fields = {};
+    const scan = (obj, prefix) => {
+      if (!obj || typeof obj !== "object") return;
+      for (const [key, value] of Object.entries(obj)) {
+        if (!isMoney(value)) continue;
+        if (Object.keys(fields).length >= MAX_CALIBRATION_ITEMS) return;
+        fields[(prefix + key).slice(0, 60)] = safeText(value.currency, 8);
+      }
+    };
+    scan(t, "");
+    scan(t.positions?.[0], "positions[0].");
+    return fields;
+  }
+
+  // UTF-8 size of a string without TextEncoder (content scripts and the test
+  // sandbox both have it, but this keeps the module dependency-free).
+  function byteLength(s) {
+    let bytes = 0;
+    for (let i = 0; i < s.length; i += 1) {
+      const c = s.charCodeAt(i);
+      bytes += c < 0x80 ? 1 : c < 0x800 ? 2 : 3;
+    }
+    return bytes;
+  }
+
+  // The item cap is not enough on its own — 20 long Czech titles can still pass
+  // the server's 8192 B broker_detail limit, and an oversized report is simply
+  // rejected. Drop calibration items from the tail (never a field value) until
+  // the detail fits, longest list first.
+  function fitDetail(detail) {
+    const fitted = { ...detail };
+    while (byteLength(JSON.stringify(fitted)) > 7500
+        && (fitted.money_fields.length || fitted.skipped_titles.length)) {
+      if (fitted.money_fields.length >= fitted.skipped_titles.length) {
+        fitted.money_fields = fitted.money_fields.slice(0, -1);
+      } else {
+        fitted.skipped_titles = fitted.skipped_titles.slice(0, -1);
+      }
+    }
+    return fitted;
   }
 
   function readToken() {
@@ -181,8 +271,11 @@
       }
 
       const positions = [];
-      const skippedTypes = {};   // securityType → count (George Invest etc.)
-      const noAvg = [];
+      const skippedTitles = [];  // identity of every title we can't import yet
+      const skippedNames = [];   // the same titles, for the member's warning
+      const moneyFields = [];    // { isin, fields: { name: currency|null } }
+      const noAvg = [];          // average not derivable from the snapshot
+      const fxNoAvg = [];        // …because the title is in another currency
       let totalValue = 0;
       let titlesValue = 0;       // Σ market values of ALL titles (incl. skipped)
       let currency = null;
@@ -199,12 +292,59 @@
           for (const t of sub.titles || []) {
             const mv = money(t.marketValue);
             if (mv != null) titlesValue += mv;
-            if (t.securityType !== "FUND") {
-              const type = typeof t.securityType === "string"
-                ? t.securityType : "unknown";
-              skippedTypes[type] = (skippedTypes[type] || 0) + 1;
+
+            if (t.securityType === "SHARE") {
+              // Exchange-traded share (George Invest): an ordinary ticker row
+              // carrying the ISIN — the club web resolves it to a Yahoo quote
+              // through its alias table (ADR 0010 addendum). No price snapshot:
+              // shares are priced by the club, funds are not.
+              const shareCount = t.numberOfShares;
+              if (!Number.isFinite(shareCount) || shareCount <= 0) continue;
+              const shareIsin = safeText(t.isin, 20)?.toUpperCase() || "";
+              if (!shareIsin) continue;
+              const titleCurrency = safeText(t.currency, 8);
+              const invested = money(t.investedValue);
+              // George reports investedValue in the ACCOUNT currency while the
+              // share itself lives in its native one, so dividing across
+              // currencies would produce a silently wrong average.
+              const sameCurrency = !!titleCurrency && !!cur && titleCurrency === cur;
+              const shareAvg = sameCurrency && invested != null && invested > 0
+                ? invested / shareCount : null;
+              const shareName = safeText(t.title || t.fullTitle);
+              if (shareAvg == null) {
+                (sameCurrency ? noAvg : fxNoAvg).push(shareName || shareIsin);
+                // Which money field would hold the native amount? Names and
+                // currencies only — that is exactly what we lack (ADR 0015).
+                if (moneyFields.length < MAX_CALIBRATION_ITEMS) {
+                  moneyFields.push({
+                    isin: shareIsin, fields: moneyFieldCurrencies(t),
+                  });
+                }
+              }
+              const exchange = safeText(t.positions?.[0]?.stockExchangeCode, 20);
+              positions.push({
+                ticker: shareIsin,
+                shares: shareCount,
+                avgCost: shareAvg,
+                currency: titleCurrency || cur || null,
+                note: shareName && exchange
+                  ? `${shareName} · ${exchange}`
+                  : shareName || exchange || null,
+              });
               continue;
             }
+
+            if (t.securityType !== "FUND") {
+              // Unknown type (ETF, bond, certificate — we have no live sample).
+              // Skipped loudly, with its identity offered for calibration.
+              const identity = titleIdentity(t);
+              if (skippedTitles.length < MAX_CALIBRATION_ITEMS) {
+                skippedTitles.push(identity);
+              }
+              skippedNames.push(identity.title || identity.isin || "neznámý titul");
+              continue;
+            }
+
             const shares = t.numberOfShares;
             if (!Number.isFinite(shares) || shares <= 0) continue; // sold-out fund
             const isin = typeof t.isin === "string" ? t.isin.trim().toUpperCase() : "";
@@ -242,22 +382,30 @@
       }
 
       const warnings = [];
-      const skippedCount = Object.values(skippedTypes).reduce((a, b) => a + b, 0);
-      if (skippedCount) {
+      if (skippedNames.length) {
+        const shown = skippedNames.slice(0, 5).join(", ");
+        const rest = skippedNames.length - 5;
         warnings.push(
-          `Na účtu ${skippedCount === 1 ? "je" : "jsou"} i ${skippedCount} `
-          + "burzovní tituly (George Invest) — ty zatím neumíme, naimportovaly "
-          + "se jen fondy. Dej nám vědět a doplníme je.",
+          `Tituly ${shown}${rest > 0 ? ` a další (${rest})` : ""} zatím neumíme `
+          + "naimportovat — přeskočily se. Klikni prosím na „Odeslat "
+          + "diagnostiku“, pošleš nám jejich typ a my je doplníme.",
         );
       }
       if (!positions.length) {
-        warnings.push("Na majetkovém účtu nejsou žádné podílové fondy — "
-          + "importuje se jen celková hodnota.");
+        warnings.push("Na majetkovém účtu nejsou žádné fondy ani akcie, "
+          + "které umíme naimportovat — importuje se jen celková hodnota.");
       }
       if (noAvg.length) {
         warnings.push(
-          `U fondů ${noAvg.join(", ")} se nákupní cena nedala odvodit — `
+          `U titulů ${noAvg.join(", ")} se nákupní cena nedala odvodit — `
           + "doplň ji v tabulce ručně.",
+        );
+      }
+      if (fxNoAvg.length) {
+        warnings.push(
+          `U akcií ${fxNoAvg.join(", ")} v cizí měně neumíme nákupní cenu `
+          + "spočítat (George vede investovanou částku v měně účtu) — doplň ji "
+          + "v tabulce ručně a pošli nám prosím diagnostiku.",
         );
       }
       if (mixedCurrency) {
@@ -274,8 +422,26 @@
         cashValue = cash > 0.005 ? Math.round(cash * 100) / 100 : 0;
       }
 
+      // A successful but incomplete import still carries what we need to
+      // finish the adapter (ADR 0015 addendum 2026-09-01): the popup offers
+      // "Odeslat diagnostiku" next to the normal success flow, through the very
+      // same two-step confirmation. Identity of the AFFECTED titles only —
+      // never shares, amounts, values or performance.
+      const calibration = skippedTitles.length || moneyFields.length
+        ? IKDiagnostics.failure({
+          phase: "scrape",
+          errorCode: "partial_import",
+          brokerDetail: fitDetail({
+            ...diagnosticDetail({ hadToken: true, meta, body }),
+            skipped_titles: skippedTitles.slice(0, MAX_CALIBRATION_ITEMS),
+            money_fields: moneyFields.slice(0, MAX_CALIBRATION_ITEMS),
+          }),
+        })
+        : null;
+
       return {
         ok: true,
+        ...(calibration ? { calibration } : {}),
         payload: {
           broker: "george",
           brokerLabel: "George (Česká spořitelna)",

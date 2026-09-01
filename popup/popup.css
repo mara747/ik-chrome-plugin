@@ -57,6 +57,19 @@ button.primary {
 }
 button.primary:disabled { opacity: 0.6; cursor: default; }
 
+/* Quiet inline action (calibration diagnostic offered after a SUCCESSFUL
+   import) — must never look like the primary handoff button. */
+button.linkish {
+  width: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 11px;
+  text-decoration: underline;
+}
+button.linkish:hover { color: var(--primary); }
+
 .row { display: flex; align-items: center; gap: 8px; }
 .badge {
   background: var(--primary);

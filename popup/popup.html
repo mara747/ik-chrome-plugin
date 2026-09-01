@@ -55,6 +55,10 @@
       </div>
       <button id="btn-send" class="primary" disabled>Odeslat do webu klubu</button>
       <p class="hint small">Web klubu se otevře na vybraném portfoliu s načtenými daty — zkontroluj a ulož.</p>
+      <p id="result-calibration" class="hint small" hidden>
+        <span id="result-calibration-text">Něco z účtu jsme naimportovat neuměli — pomůže nám, když pošleš diagnostiku.</span>
+        <button id="btn-result-diagnostic" class="linkish">Odeslat diagnostiku</button>
+      </p>
     </div>
 
     <div id="error-box" hidden>
@@ -64,8 +68,8 @@
 
     <div id="diagnostic" class="diagnostic" hidden>
       <h2>Odeslat diagnostiku</h2>
-      <p class="hint small">Odešle se verze doplňku, broker, fáze chyby a technická podoba stránky bez hodnot portfolia.</p>
-      <p class="safe">Neposílají se cookies, přihlašovací údaje, portfolio ani identita účtu.</p>
+      <p class="hint small" id="diagnostic-scope">Odešle se verze doplňku, broker, fáze chyby a technická podoba stránky bez hodnot portfolia.</p>
+      <p class="safe" id="diagnostic-safe">Neposílají se cookies, přihlašovací údaje, portfolio ani identita účtu.</p>
       <details>
         <summary>Zobrazit technické údaje</summary>
         <pre id="diagnostic-preview"></pre>

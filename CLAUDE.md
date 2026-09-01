@@ -76,6 +76,24 @@ up to three `file.js:line` first-party frames — never the raw message/stack.
 The admin console can generate an anonymized Markdown brief; individual
 incidents never belong in this file.
 
+**Addendum 2026-09-01 — calibration from a partial success.** A scraper may
+attach a report to an `ok: true` result as `calibration` (error code
+`partial_import`, allowlisted in `lib/diagnostics.js`), and the popup offers
+"Odeslat diagnostiku" next to the successful result through the SAME two-step
+dialog, the same `ik_pending_diagnostic` storage handoff and the same
+`content/club.js` delivery — only the entry point is new. The primary
+"Odeslat do webu klubu" action must never be blocked by it; both handoffs may
+wait in storage at once. This shifts the content boundary: the IDENTITY of the
+affected titles may travel (ISIN, name, type, sub-type, exchange, currency, and
+the NAMES + currencies of money-shaped fields) because the member just imported
+that data, sees it in the preview and confirms it with a second button. SIZES
+never do — shares, amounts, values and performance stay out, and successfully
+imported titles are not reported at all. George's `broker_detail` keys are
+exactly `had_token`, `request_ok`, `request_status`, `request_redirected`,
+`accounts_count`, `titles_count`, `titles_by_type`, `skipped_titles`,
+`money_fields`; the last two are capped at 20 items (the server rejects a
+`broker_detail` over 8192 B).
+
 Some brokers carry their OWN symbol variant for an instrument — a numbered
 ticker kept after the plain symbol was recycled to another company, or a
 different listing line of the same fund — while Yahoo (and the club web, which
