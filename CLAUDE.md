@@ -48,8 +48,14 @@ WHY comments): this repo is public and members contribute PRs in English.
    `../value-invest/docs/supabase-schema.sql`).
 
 Payload contract: `{ broker, brokerLabel, totalValue, cashValue?, currency,
-positions: [{ticker, shares, avgCost, currency, note}], warnings[],
-scrapedAt }` — tickers already normalized to Yahoo format (`IK.yahooSymbol`).
+positions: [{ticker, shares, avgCost, currency, note, kind?, name?, price?,
+multiplier?}], warnings[], scrapedAt }` — tickers already normalized to Yahoo
+format (`IK.yahooSymbol`). `kind` marks non-stock instrument rows the web
+stores under the same `asset_kind` ('fund' since 0.5.0 — George, ticker =
+ISIN; 'option' since 0.7.0 — IBKR, ticker = OCC symbol) with `name` as the
+human label and `price` as the import-time per-unit snapshot (the web's
+`broker_price` fallback); `multiplier` (options only) scales value = shares ×
+price × multiplier.
 `cashValue` (optional, in payload currency, since 0.1.7 / ADR 0005 in the
 monorepo) is the broker-reported cash inside totalValue: IBKR
 `/summary.totalcashvalue` (can be negative on margin), Portu CashComposition
@@ -174,9 +180,17 @@ keep the original ticker and append the Czech collision audit note.
   IBKR is API-ONLY (user's call: "scraping webu se rozbije spíš než API"):
   scrape() reads the same-origin authenticated Client Portal API
   (`/v1/api/portfolio/accounts` → `…/positions/{page}` → `…/summary`, plus
-  `/trsrv/secdef` to backfill listingExchange) → Yahoo suffix via
-  EXCHANGE_SUFFIX (port of core/ibkr.py). Non-STK rows (options/futures/FX
-  cash) are skipped with a warning. There is deliberately NO DOM-table
+  `/trsrv/secdef` to backfill listingExchange and OCC option fields) →
+  Yahoo suffix via EXCHANGE_SUFFIX (port of core/ibkr.py). Bought options
+  (OPT, positive qty; root ADR 0016 in the club monorepo) import as
+  `kind: "option"` rows: ticker = OCC symbol (SPY270319P00770000) composed
+  fail-closed from explicit fields (undSym/expiry/putOrCall/strike/
+  multiplier, secdef backfill; a row missing any field is skipped loudly,
+  never guessed from contractDesc), shares = contracts, avgCost = per-share
+  premium (IBKR reports per CONTRACT → divided by multiplier; calibrated
+  live 2026-09), plus `multiplier` and a per-share `price` snapshot from
+  mktValue. Written (negative) options, futures and FX cash rows are
+  skipped with a warning. There is deliberately NO DOM-table
   fallback — each failing endpoint returns a Czech, actionable error
   (expired session → F5). Only DOM touchpoints: account id from the header
   (multi-account pick) and the `.ptf-positions[nlv]` Net Liq backup.

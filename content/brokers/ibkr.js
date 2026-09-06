@@ -12,7 +12,12 @@
 //       position, avgPrice/avgCost, currency, listingExchange, assetClass
 //       (verified live 2026-07; older gateways page via /positions/{page})
 //   GET {base}/portfolio/{acct}/summary            netliquidation {amount,currency}
-//   GET {base}/trsrv/secdef?conids=…               listingExchange backfill
+//   GET {base}/trsrv/secdef?conids=…               listingExchange + OCC backfill
+//
+// Besides stocks/ETFs (STK) the scraper imports BOUGHT options (OPT with a
+// positive quantity) as OCC-symbol positions — root ADR 0016 in the club
+// monorepo. Written (negative) options and other asset classes stay out with
+// a warning: sign-aware math across the club web is deliberately out of scope.
 // {base} differs by host/portal generation — the browser Client Portal
 // proxies under /portal.proxy/v1/portal (verified live on
 // www.interactivebrokers.ie, 2026-07), the CP gateway uses /v1/api — so the
@@ -114,7 +119,9 @@
       "znovu přihlas, a pak import spusť znovu.",
   });
 
-  // { [conid]: { exchange, currency } } from /trsrv/secdef, or null.
+  // { [conid]: { exchange, currency, … } } from /trsrv/secdef, or null.
+  // The option fields (undSym/maturityDate/right/strike/multiplier) backfill
+  // OCC symbols for OPT rows whose position record came in without them.
   async function fetchSecdefs(conids) {
     if (!conids.length || !apiBase) return null;
     const body = await apiGet(`${apiBase}/trsrv/secdef?conids=${conids.join(",")}`);
@@ -126,10 +133,42 @@
       map[String(sd.conid)] = {
         exchange: String(sd.listingExchange || "").toUpperCase() || null,
         currency: String(sd.currency || "").toUpperCase() || null,
+        undSym: sd.undSym != null ? String(sd.undSym) : null,
+        maturityDate: sd.maturityDate != null ? String(sd.maturityDate) : null,
+        right: sd.right != null ? String(sd.right) : null,
+        strike: sd.strike != null ? Number(sd.strike) : null,
+        multiplier: sd.multiplier != null ? Number(sd.multiplier) : null,
       };
     }
     return map;
   }
+
+  // OCC option fields from a position row, backfilled from its secdef entry.
+  // Returns null unless EVERY field needed for an exact OCC symbol is present
+  // and valid — a row that cannot be composed exactly is skipped (fail-closed,
+  // root ADR 0016), never guessed from the contract description. lastTradingDay
+  // is deliberately NOT used as an expiry fallback: for AM-settled contracts it
+  // differs from the expiration date the OCC symbol carries.
+  function occFields(r, sd) {
+    const und = String(r.undSym || (sd && sd.undSym) || "").trim().toUpperCase();
+    const expiry = String(r.expiry || (sd && sd.maturityDate) || "").trim();
+    const right = String(r.putOrCall || (sd && sd.right) || "")
+      .trim().toUpperCase().slice(0, 1);
+    const strike = Number(r.strike || (sd && sd.strike));
+    const multiplier = Number(r.multiplier || (sd && sd.multiplier));
+    if (!/^[A-Z]{1,6}$/.test(und)) return null;
+    if (!/^\d{8}$/.test(expiry)) return null;
+    if (right !== "P" && right !== "C") return null;
+    if (!Number.isFinite(strike) || strike <= 0 || strike > 99999) return null;
+    if (!Number.isFinite(multiplier) || multiplier <= 0) return null;
+    return { und, expiry, right, strike, multiplier };
+  }
+
+  // Canonical OCC symbol, Yahoo-quotable directly:
+  // root + YYMMDD + C/P + strike×1000 in 8 digits → SPY270319P00770000.
+  const occSymbol = (f) =>
+    f.und + f.expiry.slice(2) + f.right +
+    String(Math.round(f.strike * 1000)).padStart(8, "0");
 
   // Net Liq backup straight from the page when only /summary fails: the
   // holdings wrapper carries it as a raw attribute, the account header
@@ -209,27 +248,33 @@
         }
       }
 
-      // Stocks/ETFs only (assetClass STK); options, futures and FX cash lines
-      // are not importable positions — count them for the warning instead.
+      // Stocks/ETFs (STK) import as plain rows; bought options (OPT, positive
+      // quantity) as OCC positions (root ADR 0016). Everything else — futures,
+      // FX cash lines and written options — is not importable: count it for
+      // the warning instead.
       const skippedKinds = new Map();
+      const skip = (label) =>
+        skippedKinds.set(label, (skippedKinds.get(label) || 0) + 1);
       const picked = [];
+      const pickedOpts = [];
       for (const r of rows) {
         if (!r || typeof r !== "object") continue;
         const qty = Number(r.position);
         if (!Number.isFinite(qty) || qty === 0) continue;
         const cls = String(r.assetClass || r.secType || "STK").toUpperCase();
-        if (cls !== "STK") {
-          skippedKinds.set(cls, (skippedKinds.get(cls) || 0) + 1);
-          continue;
-        }
-        picked.push(r);
+        if (cls === "STK") picked.push(r);
+        else if (cls === "OPT" && qty > 0) pickedOpts.push(r);
+        else skip(cls === "OPT" ? "OPT psaná" : cls);
       }
 
       // 3) listingExchange is usually inline; backfill the rest via secdef.
+      // OPT rows missing any OCC field ride the same secdef call.
       const missing = picked.filter((r) => !r.listingExchange && r.conid != null);
-      const secdefs = missing.length
-        ? await fetchSecdefs(missing.map((r) => String(r.conid)))
-        : null;
+      const optMissing = pickedOpts.filter(
+        (r) => !occFields(r, null) && r.conid != null);
+      const conids = [...new Set(
+        [...missing, ...optMissing].map((r) => String(r.conid)))];
+      const secdefs = conids.length ? await fetchSecdefs(conids) : null;
 
       const warnings = [];
       const unknownExchanges = new Set();
@@ -258,6 +303,39 @@
         });
       }
 
+      // Bought options → OCC positions. shares = contracts; avgCost = premium
+      // PER SHARE: IBKR reports option avgCost per CONTRACT (calibrated live
+      // 2026-09: avgCost 2784.49 against a 27.90 per-share quote), so it is
+      // divided by the multiplier. `price` is an import-time per-share snapshot
+      // derived from mktValue — the web's last-resort broker_price until the
+      // club publishes a live OCC quote.
+      for (const r of pickedOpts) {
+        const sd = secdefs && r.conid != null ? secdefs[String(r.conid)] : null;
+        const f = occFields(r, sd);
+        if (!f) {
+          skip("OPT bez polí pro OCC symbol");
+          continue;
+        }
+        const qty = Number(r.position);
+        const avgCost = Number(r.avgCost);
+        const mktValue = Number(r.mktValue);
+        positions.push({
+          ticker: occSymbol(f),
+          shares: qty,
+          avgCost: avgCost > 0 ? avgCost / f.multiplier : null,
+          currency: String(r.currency || (sd && sd.currency) || "")
+            .toUpperCase() || null,
+          note: null,
+          kind: "option",
+          name: String(r.contractDesc || "").trim() ||
+            `${f.und} ${Number(f.expiry.slice(6))}.${Number(f.expiry.slice(4, 6))}.` +
+            `${f.expiry.slice(0, 4)} ${f.strike} ${f.right}`,
+          multiplier: f.multiplier,
+          price: Number.isFinite(mktValue) && mktValue > 0
+            ? mktValue / (qty * f.multiplier) : null,
+        });
+      }
+
       if (pagesFailed) {
         warnings.push(
           "Část stránek s pozicemi se nepodařilo načíst — zkontroluj, že počet pozic sedí.",
@@ -277,8 +355,9 @@
       if (skippedKinds.size) {
         const parts = [...skippedKinds].map(([k, n]) => `${k} ×${n}`);
         warnings.push(
-          `Vynechány ne-akciové položky (${parts.join(", ")}) — importují se ` +
-          "jen akcie/ETF; hotovost je součástí celkové hodnoty účtu.",
+          `Vynechány neimportovatelné položky (${parts.join(", ")}) — ` +
+          "importují se akcie/ETF a koupené opce; hotovost je součástí " +
+          "celkové hodnoty účtu.",
         );
       }
       if (unknownExchanges.size) {
@@ -288,7 +367,8 @@
       }
       if (!positions.length) {
         warnings.push(
-          "Na účtu nejsou žádné akcie/ETF — importuje se jen celková hodnota účtu.",
+          "Na účtu nejsou žádné akcie/ETF ani koupené opce — importuje se " +
+          "jen celková hodnota účtu.",
         );
       }
 
