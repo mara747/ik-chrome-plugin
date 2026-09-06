@@ -57,7 +57,8 @@ Pro pohodlnou distribuci a **auto-aktualizace** (bez vývojářského režimu):
 
 - Jednorázový poplatek 5 USD, nahraje se stejný zip, viditelnost **Unlisted**
   (instalace přes přímý odkaz, nejde najít ve vyhledávání).
-- Potřeba doplnit: **ikony** (16/32/48/128 px) do `manifest.json` + `icons/`,
-  krátký popis, screenshot a „privacy justification" k oprávněním
-  `storage`/`tabs` a doménám brokerů (u finančního rozšíření to prověřují víc).
+- Ikony (16/32/48/128 px v `icons/`, logo klubu z webu) už v manifestu jsou
+  (0.7.1). Potřeba doplnit: krátký popis, screenshot a „privacy justification"
+  k oprávněním `storage`/`tabs` a doménám brokerů (u finančního rozšíření to
+  prověřují víc).
 - Po vydání se `_app.rozsireni.tsx` přepne z lokálního zipu na odkaz do Web Store.

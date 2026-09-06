@@ -1,11 +1,23 @@
 {
   "manifest_version": 3,
   "name": "Investiční klub — import portfolia",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Importuje hodnotu a pozice z eToro, IBKR, Trading 212, Portu, Fio, Anycoin, XTB a George ČS (fondy i akcie) do Investičního klubu.",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
   "action": {
     "default_popup": "popup/popup.html",
-    "default_title": "Import portfolia do Investičního klubu"
+    "default_title": "Import portfolia do Investičního klubu",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
   },
   "permissions": ["storage", "tabs"],
   "content_scripts": [

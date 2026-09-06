@@ -14,6 +14,6 @@ if [ ! -d "$WEB_PUBLIC" ]; then
 fi
 
 rm -f "$OUT"
-zip -rq "$OUT" manifest.json lib content popup README.md -x '*.DS_Store'
+zip -rq "$OUT" manifest.json lib content popup icons README.md -x '*.DS_Store'
 echo "Hotovo: $OUT ($(du -h "$OUT" | cut -f1))"
 echo "Nezapomeň v investicni-klub/src/routes/_app.rozsireni.tsx nastavit PLUGIN_VERSION='$VER' a PLUGIN_FILE='/ik-portfolio-import-$VER.zip'."
