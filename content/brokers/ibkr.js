@@ -130,12 +130,18 @@
     const map = {};
     for (const sd of list) {
       if (!sd || sd.conid == null) continue;
+      // Live secdef shape (.ie portal proxy, calibrated 2026-09): the option
+      // fields are named exactly like position-row fields — expiry ("20270319"),
+      // putOrCall ("P"), strike (STRING "770"), multiplier, undSym. Older
+      // gateway docs mention maturityDate/right, kept as fallbacks.
       map[String(sd.conid)] = {
         exchange: String(sd.listingExchange || "").toUpperCase() || null,
         currency: String(sd.currency || "").toUpperCase() || null,
         undSym: sd.undSym != null ? String(sd.undSym) : null,
-        maturityDate: sd.maturityDate != null ? String(sd.maturityDate) : null,
-        right: sd.right != null ? String(sd.right) : null,
+        expiry: sd.expiry != null ? String(sd.expiry)
+          : (sd.maturityDate != null ? String(sd.maturityDate) : null),
+        putOrCall: sd.putOrCall != null ? String(sd.putOrCall)
+          : (sd.right != null ? String(sd.right) : null),
         strike: sd.strike != null ? Number(sd.strike) : null,
         multiplier: sd.multiplier != null ? Number(sd.multiplier) : null,
       };
@@ -151,8 +157,8 @@
   // differs from the expiration date the OCC symbol carries.
   function occFields(r, sd) {
     const und = String(r.undSym || (sd && sd.undSym) || "").trim().toUpperCase();
-    const expiry = String(r.expiry || (sd && sd.maturityDate) || "").trim();
-    const right = String(r.putOrCall || (sd && sd.right) || "")
+    const expiry = String(r.expiry || (sd && sd.expiry) || "").trim();
+    const right = String(r.putOrCall || (sd && sd.putOrCall) || "")
       .trim().toUpperCase().slice(0, 1);
     const strike = Number(r.strike || (sd && sd.strike));
     const multiplier = Number(r.multiplier || (sd && sd.multiplier));
@@ -304,11 +310,14 @@
       }
 
       // Bought options → OCC positions. shares = contracts; avgCost = premium
-      // PER SHARE: IBKR reports option avgCost per CONTRACT (calibrated live
-      // 2026-09: avgCost 2784.49 against a 27.90 per-share quote), so it is
-      // divided by the multiplier. `price` is an import-time per-share snapshot
-      // derived from mktValue — the web's last-resort broker_price until the
-      // club publishes a live OCC quote.
+      // PER SHARE. Calibrated live 2026-09 on the .ie portal proxy: avgPrice
+      // AND avgCost both come back per share there (27.900333 for a put the
+      // TWS UI shows as cost 2 784.49 per contract; mktValue = mktPrice × qty
+      // × multiplier). The CP gateway documents avgPrice as per-share and
+      // avgCost as including the multiplier — so prefer avgPrice and fall
+      // back to avgCost / multiplier only when avgPrice is absent. `price` is
+      // an import-time per-share snapshot derived from mktValue — the web's
+      // last-resort broker_price until the club publishes a live OCC quote.
       for (const r of pickedOpts) {
         const sd = secdefs && r.conid != null ? secdefs[String(r.conid)] : null;
         const f = occFields(r, sd);
@@ -317,17 +326,20 @@
           continue;
         }
         const qty = Number(r.position);
+        const avgPrice = Number(r.avgPrice);
         const avgCost = Number(r.avgCost);
         const mktValue = Number(r.mktValue);
         positions.push({
           ticker: occSymbol(f),
           shares: qty,
-          avgCost: avgCost > 0 ? avgCost / f.multiplier : null,
+          avgCost: avgPrice > 0 ? avgPrice
+            : (avgCost > 0 ? avgCost / f.multiplier : null),
           currency: String(r.currency || (sd && sd.currency) || "")
             .toUpperCase() || null,
           note: null,
+          // "@AMEX"-style venue annotations don't belong in a display name.
           kind: "option",
-          name: String(r.contractDesc || "").trim() ||
+          name: String(r.contractDesc || "").split("@")[0].trim() ||
             `${f.und} ${Number(f.expiry.slice(6))}.${Number(f.expiry.slice(4, 6))}.` +
             `${f.expiry.slice(0, 4)} ${f.strike} ${f.right}`,
           multiplier: f.multiplier,

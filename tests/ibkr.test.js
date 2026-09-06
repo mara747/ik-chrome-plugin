@@ -4,8 +4,11 @@
 // monorepo): bought OPT rows become OCC-symbol positions with per-share
 // premium and an explicit multiplier; written options and rows that cannot
 // compose an exact OCC symbol are skipped loudly (fail-closed). Fixtures
-// mirror the live-calibrated shapes (2026-09) with the SPY Mar19'27 770 P
-// case: avgCost is per CONTRACT (2784.49 against a 27.90 per-share quote).
+// mirror the live-calibrated shapes (.ie portal proxy, 2026-09, SPY
+// Mar19'27 770 P): the position row carries NO option fields (everything
+// comes from /trsrv/secdef — expiry/putOrCall/strike-as-string/multiplier/
+// undSym) and avgPrice/avgCost are both PER SHARE (27.900333); per-contract
+// avgCost exists only on gateways that omit avgPrice.
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
@@ -26,20 +29,36 @@ const STK_ROW = {
   listingExchange: "NASDAQ",
 };
 
-// Long put with every OCC field inline — no secdef call needed.
+// Live .ie portal-proxy position row: no option fields, per-share averages.
 const OPT_ROW = {
-  conid: 777,
+  acctId: "U111",
+  conid: 826254591,
   assetClass: "OPT",
+  secType: "OPT",
   position: 1,
-  avgCost: 2784.49,
-  mktValue: 2790,
+  avgCost: 27.900333,
+  avgPrice: 27.900333,
+  mktPrice: 28.99959945,
+  mktValue: 2899.959945,
   currency: "USD",
-  contractDesc: "SPY 19MAR27 770 P",
-  undSym: "SPY",
+  contractDesc: "SPY Mar19'27 770 PUT @AMEX",
+  description: "SPY Mar19'27 770 PUT @AMEX",
+};
+
+// Live /trsrv/secdef entry for the same conid (strike is a STRING there).
+const OPT_SECDEF = {
+  conid: 826254591,
+  currency: "USD",
+  listingExchange: "AMEX",
+  assetClass: "OPT",
   expiry: "20270319",
+  lastTradingDay: "20270319",
   putOrCall: "P",
-  strike: 770,
+  strike: "770",
   multiplier: 100,
+  undSym: "SPY",
+  ticker: "SPY",
+  fullName: "SPY Mar19'27 770 Put",
 };
 
 function createHarness({ routes = {} } = {}) {
@@ -87,9 +106,12 @@ test("registers the ibkr scraper", () => {
   assert.equal(scraper.broker, "ibkr");
 });
 
-test("imports a bought option as an OCC position with per-share premium", async () => {
+test("imports the live-shaped option: OCC via secdef, per-share premium kept", async () => {
   const { scraper } = createHarness({
-    routes: { [`${BASE}/portfolio/U111/positions/all`]: [STK_ROW, OPT_ROW] },
+    routes: {
+      [`${BASE}/portfolio/U111/positions/all`]: [STK_ROW, OPT_ROW],
+      [`${BASE}/trsrv/secdef`]: [OPT_SECDEF],
+    },
   });
   const res = await scraper.scrape();
   assert.equal(res.ok, true);
@@ -100,13 +122,33 @@ test("imports a bought option as an OCC position with per-share premium", async 
   const opt = res.payload.positions[1];
   assert.equal(opt.ticker, "SPY270319P00770000");
   assert.equal(opt.kind, "option");
-  assert.equal(opt.shares, 1);                 // contracts, not shares
-  assert.equal(opt.avgCost, 2784.49 / 100);    // per-contract → per-share
+  assert.equal(opt.shares, 1);                  // contracts, not shares
+  assert.equal(opt.avgCost, 27.900333);         // avgPrice is already per share
   assert.equal(opt.multiplier, 100);
-  assert.equal(opt.price, 27.9);               // mktValue / (qty × multiplier)
-  assert.equal(opt.name, "SPY 19MAR27 770 P");
+  assert.equal(opt.price, 2899.959945 / 100);   // mktValue / (qty × multiplier)
+  assert.equal(opt.name, "SPY Mar19'27 770 PUT"); // "@AMEX" annotation cut
   assert.equal(opt.currency, "USD");
   assert.equal(res.payload.warnings.length, 0);
+});
+
+test("falls back to per-contract avgCost ÷ multiplier when avgPrice is absent", async () => {
+  const gatewayRow = {
+    conid: 826254591,
+    assetClass: "OPT",
+    position: 1,
+    avgCost: 2784.49, // CP-gateway style: includes the multiplier
+    currency: "USD",
+    contractDesc: "SPY Mar19'27 770 PUT",
+  };
+  const { scraper } = createHarness({
+    routes: {
+      [`${BASE}/portfolio/U111/positions/all`]: [gatewayRow],
+      [`${BASE}/trsrv/secdef`]: [OPT_SECDEF],
+    },
+  });
+  const res = await scraper.scrape();
+  assert.equal(res.payload.positions[0].avgCost, 2784.49 / 100);
+  assert.equal(res.payload.positions[0].price, null); // no mktValue either
 });
 
 test("skips a written (negative) option with a warning", async () => {
@@ -121,7 +163,7 @@ test("skips a written (negative) option with a warning", async () => {
   assert.match(res.payload.warnings.join(" "), /OPT psaná ×1/);
 });
 
-test("backfills missing OCC fields from secdef", async () => {
+test("accepts the maturityDate/right secdef field variant", async () => {
   const bare = {
     conid: 778,
     assetClass: "OPT",
@@ -137,7 +179,7 @@ test("backfills missing OCC fields from secdef", async () => {
       [`${BASE}/trsrv/secdef`]: [{
         conid: 778,
         undSym: "SPY",
-        maturityDate: "20270319",
+        maturityDate: "20270319", // older gateway naming — fallback path
         right: "P",
         strike: 770,
         multiplier: 100,
@@ -151,7 +193,7 @@ test("backfills missing OCC fields from secdef", async () => {
   const opt = res.payload.positions[0];
   assert.equal(opt.ticker, "SPY270319P00770000");
   assert.equal(opt.shares, 2);
-  assert.equal(opt.avgCost, 5.12);          // 512 / 100
+  assert.equal(opt.avgCost, 5.12);          // no avgPrice → 512 / 100
   assert.equal(opt.price, 5.5);             // 1100 / (2 × 100)
 });
 
@@ -176,7 +218,7 @@ test("fails closed when the OCC symbol cannot be composed", async () => {
   assert.match(res.payload.warnings.join(" "), /OPT bez polí pro OCC symbol ×1/);
 });
 
-test("pads a fractional strike to eight digits", async () => {
+test("pads a fractional strike to eight digits (inline row fields, no secdef)", async () => {
   const small = {
     ...OPT_ROW,
     conid: 780,
@@ -185,6 +227,7 @@ test("pads a fractional strike to eight digits", async () => {
     expiry: "20261218",
     putOrCall: "C",
     strike: 7.5,
+    multiplier: 100,
   };
   const { scraper } = createHarness({
     routes: { [`${BASE}/portfolio/U111/positions/all`]: [small] },
@@ -196,9 +239,12 @@ test("pads a fractional strike to eight digits", async () => {
 test("keeps price null when mktValue is missing", async () => {
   const noMkt = { ...OPT_ROW, mktValue: undefined };
   const { scraper } = createHarness({
-    routes: { [`${BASE}/portfolio/U111/positions/all`]: [noMkt] },
+    routes: {
+      [`${BASE}/portfolio/U111/positions/all`]: [noMkt],
+      [`${BASE}/trsrv/secdef`]: [OPT_SECDEF],
+    },
   });
   const res = await scraper.scrape();
   assert.equal(res.payload.positions[0].price, null);
-  assert.equal(res.payload.positions[0].avgCost, 2784.49 / 100);
+  assert.equal(res.payload.positions[0].avgCost, 27.900333);
 });

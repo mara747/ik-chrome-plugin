@@ -185,12 +185,15 @@ keep the original ticker and append the Czech collision audit note.
   (OPT, positive qty; root ADR 0016 in the club monorepo) import as
   `kind: "option"` rows: ticker = OCC symbol (SPY270319P00770000) composed
   fail-closed from explicit fields (undSym/expiry/putOrCall/strike/
-  multiplier, secdef backfill; a row missing any field is skipped loudly,
-  never guessed from contractDesc), shares = contracts, avgCost = per-share
-  premium (IBKR reports per CONTRACT → divided by multiplier; calibrated
-  live 2026-09), plus `multiplier` and a per-share `price` snapshot from
-  mktValue. Written (negative) options, futures and FX cash rows are
-  skipped with a warning. There is deliberately NO DOM-table
+  multiplier — on the .ie portal proxy the position row carries NONE of
+  them and everything comes from /trsrv/secdef, same field names, strike
+  as a string; a row still missing a field is skipped loudly, never
+  guessed from contractDesc), shares = contracts, avgCost = per-share
+  premium (avgPrice preferred — the portal proxy returns avgPrice AND
+  avgCost per share, calibrated live 2026-09; avgCost ÷ multiplier only
+  when avgPrice is absent, per CP-gateway docs), plus `multiplier` and a
+  per-share `price` snapshot from mktValue. Written (negative) options,
+  futures and FX cash rows are skipped with a warning. There is deliberately NO DOM-table
   fallback — each failing endpoint returns a Czech, actionable error
   (expired session → F5). Only DOM touchpoints: account id from the header
   (multi-account pick) and the `.ptf-positions[nlv]` Net Liq backup.
