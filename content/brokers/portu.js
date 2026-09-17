@@ -1,11 +1,21 @@
 // Portu (www.portu.cz) — the member's portfolio value AND positions.
 //
 // API-ONLY, calibrated live (2026-07): the Nuxt SPA talks to same-origin
-// /api/v1/* with an OAuth Bearer token kept in localStorage — which content
-// scripts share with the page, so no credentials ever touch the extension:
+// /api/v1/* with an OAuth Bearer token. Originally both auth pieces sat in
+// localStorage (which content scripts share with the page):
 //   localStorage "portu_session"        contains the access token (found by
 //                                       key name /token/, not /refresh/)
 //   localStorage "portu_client"         .clientData.id = client GUID
+//
+// 2026-09 (Portu web redesign, member report "broker_request_failed"):
+// "portu_session" left localStorage — the token now lives only in the SPA's
+// in-memory Nuxt store, the "_p_session" cookie is an opaque blob (not a
+// token), and /api/v1/* still returns 401 without a Bearer. The paired
+// MAIN-world script portu-main.js therefore answers a nonce-bound bridge
+// request with token-shaped candidates from the store; this adapter tries
+// localStorage first (cheap, and a Portu rollback would just work again),
+// then verifies each bridge candidate against /dashboard and keeps the one
+// that answers. "portu_client" survived the redesign unchanged.
 //   GET  /api/v1/dashboard?clientId=…&displayCurrency=CZK&taxTreatment=T
 //        &from=…&to=…&productIds=…      → Portfolios[]: { Id, Name,
 //                                        ActualBalance … }, PortfolioSummary
@@ -83,7 +93,7 @@
 
   // Access token + client id from the SPA's localStorage; null when the
   // member isn't logged in (or Portu reshapes the storage).
-  function readAuth() {
+  function readLsToken() {
     const findTok = (o, depth) => {
       if (!o || typeof o !== "object" || depth > 3) return null;
       for (const [k, v] of Object.entries(o)) {
@@ -94,15 +104,52 @@
       }
       return null;
     };
-    let token = null;
-    let clientId = null;
-    try { token = findTok(JSON.parse(localStorage.getItem("portu_session")), 0); }
-    catch { /* not logged in */ }
+    try { return findTok(JSON.parse(localStorage.getItem("portu_session")), 0); }
+    catch { return null; /* not logged in */ }
+  }
+
+  function readClientId() {
     try {
       const id = JSON.parse(localStorage.getItem("portu_client")).clientData.id;
-      if (GUID_RE.test(id)) clientId = id;
-    } catch { /* not logged in */ }
-    return token && clientId ? { token, clientId } : null;
+      return GUID_RE.test(id) ? id : null;
+    } catch { return null; /* not logged in */ }
+  }
+
+  // Nonce-bound same-window bridge to portu-main.js (MAIN world) — the only
+  // place that can see the SPA's in-memory store. Resolves to [] on timeout
+  // (older cached page without the MAIN script, or a store reshape).
+  const BRIDGE_CHANNEL = "ik-portu-auth-bridge";
+  const BRIDGE_TIMEOUT_MS = 3000;
+
+  function randomToken() {
+    return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+  }
+
+  function storeTokenCandidates() {
+    const requestId = randomToken();
+    const nonce = randomToken();
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => finish([]), BRIDGE_TIMEOUT_MS);
+      const onMessage = (event) => {
+        if (event.source !== window || event.origin !== location.origin) return;
+        const message = event.data;
+        if (message?.channel !== BRIDGE_CHANNEL || message.type !== "response"
+          || message.requestId !== requestId || message.nonce !== nonce) return;
+        const list = Array.isArray(message.result?.candidates)
+          ? message.result.candidates : [];
+        finish(list.filter((t) => typeof t === "string" && t.length > 20).slice(0, 8));
+      };
+      function finish(candidates) {
+        clearTimeout(timeout);
+        window.removeEventListener("message", onMessage);
+        resolve(candidates);
+      }
+      window.addEventListener("message", onMessage);
+      window.postMessage(
+        { channel: BRIDGE_CHANNEL, type: "request", requestId, nonce },
+        location.origin,
+      );
+    });
   }
 
   // /souhrn/investice/detail?id=<portfolio guid> — which portfolio is open.
@@ -242,26 +289,66 @@
     isPortfolioPage: () => /^\/souhrn/.test(location.pathname),
 
     async scrape() {
-      const auth = readAuth();
-      if (!auth) {
+      // Structured facts for the diagnostic report (root ADR 0015): the
+      // 2026-09 member report carried an empty broker_detail and the three
+      // failure branches below were indistinguishable remotely.
+      const clientId = readClientId();
+      const lsToken = readLsToken();
+      const candidates = lsToken ? [lsToken] : [];
+      let storeCandidates = 0;
+      if (clientId && !candidates.length) {
+        const fromStore = await storeTokenCandidates();
+        storeCandidates = fromStore.length;
+        candidates.push(...fromStore);
+      }
+      if (!clientId || !candidates.length) {
         return {
           ok: false,
+          diagnostic: globalThis.IKDiagnostics?.failure({
+            phase: "scrape",
+            errorCode: "login_required",
+            brokerDetail: {
+              had_client_id: !!clientId,
+              had_ls_token: !!lsToken,
+              store_candidates: storeCandidates,
+            },
+          }),
           error:
             "Vypadá to, že nejsi na Portu přihlášený (v prohlížeči chybí session). " +
             "Přihlas se na www.portu.cz a zkus to znovu.",
         };
       }
 
-      const { anyOk, summary, entries } = await fetchAllPortfolios(auth);
-      if (!anyOk) {
+      let auth = null;
+      let all = null;
+      for (const token of candidates) {
+        const res = await fetchAllPortfolios({ token, clientId });
+        if (res.anyOk) {
+          auth = { token, clientId };
+          all = res;
+          break;
+        }
+      }
+      if (!all) {
         return {
           ok: false,
+          diagnostic: globalThis.IKDiagnostics?.failure({
+            phase: "scrape",
+            errorCode: "broker_request_failed",
+            brokerDetail: {
+              had_client_id: true,
+              had_ls_token: !!lsToken,
+              store_candidates: storeCandidates,
+              dashboards_ok: 0,
+            },
+          }),
           error:
             "Portu API nevrátilo přehled portfolií (/api/v1/dashboard). " +
             "Nejčastější příčina je vypršelá session — obnov stránku (F5), " +
             "případně se znovu přihlas, a zkus to znovu.",
         };
       }
+      const { summary, entries } = all;
 
       const urlId = portfolioIdFromUrl();
       let entry = urlId
@@ -318,6 +405,14 @@
           .filter(Boolean);
         return {
           ok: false,
+          diagnostic: globalThis.IKDiagnostics?.failure({
+            phase: "scrape",
+            errorCode: "broker_request_failed",
+            brokerDetail: {
+              entries_count: entries.length,
+              url_id_present: !!urlId,
+            },
+          }),
           error:
             "Nepoznám, které portfolio importovat. Otevři na Portu detail " +
             "konkrétního portfolia (Souhrn → klikni na portfolio) a zkus to znovu." +

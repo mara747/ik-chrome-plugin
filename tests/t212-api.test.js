@@ -760,7 +760,11 @@ test("labels a missing page fetch as an importer-runtime failure", async () => {
 
 test("keeps both T212 execution-world resources with the broker adapters", () => {
   const manifest = require("../manifest.json");
-  const mainWorld = manifest.content_scripts.find((entry) => entry.world === "MAIN");
+  // Scoped to the T212 entries: other brokers (XTB, Portu) run MAIN-world
+  // scripts of their own.
+  const mainWorld = manifest.content_scripts.find((entry) => (
+    entry.matches?.includes("https://app.trading212.com/*") && entry.world === "MAIN"
+  ));
   const isolatedWorld = manifest.content_scripts.find((entry) => (
     entry.matches?.includes("https://app.trading212.com/*") && entry.world !== "MAIN"
   ));

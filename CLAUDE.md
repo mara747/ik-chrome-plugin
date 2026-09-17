@@ -130,9 +130,14 @@ keep the original ticker and append the Czech collision audit note.
   (`IK.parseNumber`). Don't rely on `"auto"` where the locale is known.
 - Calibration status: **Portu and IBKR are calibrated live (2026-07) and are
   API-ONLY** — details in each scraper's header comment. Portu: same-origin
-  `/api/v1/dashboard` with Bearer token from the SPA's localStorage
-  (`portu_session`; content scripts share page localStorage), client GUID in
-  `portu_client`, portfolio picked via `?id=` on /souhrn/investice/detail;
+  `/api/v1/dashboard` with a Bearer token. Since the 2026-09 Portu redesign
+  the token lives only in the SPA's in-memory Nuxt store (`portu_session`
+  left localStorage; the `_p_session` cookie is an opaque blob): the
+  MAIN-world `portu-main.js` answers a nonce-bound bridge request from
+  `portu.js` with token-shaped store candidates, which the adapter verifies
+  against `/dashboard` (localStorage is still tried first for a rollback).
+  Client GUID stays in localStorage `portu_client`, portfolio picked via
+  `?id=` on /souhrn/investice/detail;
   `productIds` is the global "Portu Invest" catalog GUID baked into their
   bundle. The dashboard is queried for ALL THREE `taxTreatment` values
   (0 Default / 1 DIP "Důchodový účet" / 2 Pension SK — enum from the Portu
